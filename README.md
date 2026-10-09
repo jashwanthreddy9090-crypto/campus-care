@@ -1,47 +1,128 @@
-CAMPUS CARE 360° — UPDATED FLASK PROJECT
+# Campus Care 360°
 
-Included features
-- Existing student complaint submission and status tracking
-- Admin dashboard, admin-issued student accounts and worker portal
-- Emergency / SOS centre and campus contacts
-- Admin-approved password reset requests
-- Student Life dashboard with latest notices and unread notification count
-- Admin-published campus notices with student notifications
-- Notifications for complaint submission, admin assignment/status changes and worker updates
-- Lost & Found listings with private claim requests and admin resolution
-- Admin-managed Campus Map / campus services directory with optional external map links
-- Context-aware, database-aware AI assistant with account-specific persistent chat history
-- PostgreSQL persistence using DATABASE_URL, POSTGRES_URL or POSTGRES_PRISMA_URL; SQLite fallback for local development
-- Hashed passwords, HTTP-only session cookies, SameSite=Lax, secure cookies on Vercel, no public self-registration
+A Flask-based campus support portal for students, administrators, and maintenance workers. The interface uses the Campus Care red, cream, white, and charcoal theme.
 
-Deploy on Vercel
-1. Upload/commit app.py, requirements.txt and vercel.json to your GitHub repository.
-2. Create a managed PostgreSQL database (for example, a Vercel-supported Postgres integration or Neon).
-3. Add the database connection string as DATABASE_URL in Vercel Environment Variables. The app also recognizes POSTGRES_URL and POSTGRES_PRISMA_URL.
-4. Set SECRET_KEY to a long random secret. Vercel startup intentionally fails if this is missing.
-5. Set ADMIN_EMAIL to an email ending in @campus.360, ADMIN_PASSWORD to a strong initial password, and optionally ADMIN_NAME / ADMIN_MOBILE.
-6. Set the variables for Production (and Preview if needed), then redeploy.
-7. Sign in at /login. The app creates the first admin only if the configured admin email does not already exist. It does not overwrite an existing admin password on each cold start.
-8. Admins can create student accounts at /admin/students and worker credentials at /admin/workers.
-9. Admins publish notices at /notices and add campus places at /campus-map.
+## Features
 
-Important database notes
-- SQLite is used only as a local fallback. Vercel's /tmp SQLite storage is temporary and is NOT persistent. Configure DATABASE_URL before using the deployed app for real accounts or complaints.
-- Switching an existing deployment from SQLite to PostgreSQL does not automatically copy old records. Use migrate_sqlite_to_postgres.py if you have a local campuscare.db and want to migrate its rows after the PostgreSQL schema has been initialized. Review the source and destination before running it.
-- Complaint photo uploads are still stored in the local uploads folder (/tmp on Vercel), so uploaded images may not persist across serverless instances. For production, use object storage such as Vercel Blob or another durable file store.
-- Campus Map starts empty. An admin must add verified campus locations and actual map links. Demo campus phone numbers must be replaced with official contacts before real use.
-- Emergency links open the device dialler; this app does not silently dispatch an SOS or transmit location.
-- The AI assistant is a context-aware rules/data retrieval assistant, not a hosted generative AI API. It can surface available notices and a student's own recent complaint statuses. It should not be treated as an official source for unrecorded campus details.
+- Student complaint submission and status tracking
+- Admin dashboard and admin-created student accounts
+- Worker login and assigned-work portal
+- Emergency help and campus contact links
+- Admin-reviewed password reset requests
+- Campus notices and in-app notifications
+- Lost & Found listings
+- Admin-managed campus map and service directory
+- Rules/data-based Campus Care AI assistant with saved chat history
+- Password hashing and secure session-cookie settings
+- PostgreSQL support for persistent hosted data; SQLite for local development
 
-Local development
-- Install dependencies: python -m pip install -r requirements.txt
-- Set SECRET_KEY, ADMIN_EMAIL and ADMIN_PASSWORD in your local environment.
-- Run: python app.py
-- Open http://127.0.0.1:5000
+## Project files
 
-Security checklist
-- Never commit real passwords, database URLs or SECRET_KEY to GitHub.
-- Verify identity before approving password reset requests.
-- Replace all demo contact numbers with official campus contacts.
-- Use persistent PostgreSQL and durable file storage before a real campus rollout.
-- Back up the database and test account recovery before deployment.
+Keep these files at the **root of the GitHub repository**:
+
+```text
+app.py
+requirements.txt
+vercel.json
+README.md
+migrate_sqlite_to_postgres.py  # optional, only for migrating an existing SQLite database
+```
+
+Do not put these files one folder deeper inside the repository.
+
+## Run locally (Windows PowerShell)
+
+1. Install Python 3.10 or newer.
+2. Open PowerShell in the folder containing `app.py`.
+3. Create and activate a virtual environment (optional but recommended):
+
+   ```powershell
+   py -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+4. Install dependencies:
+
+   ```powershell
+   python -m pip install -r requirements.txt
+   ```
+
+5. Set local environment variables. Use your own long random secret and a strong admin password. The configured admin email must end in `@campus.360`.
+
+   ```powershell
+   $env:SECRET_KEY = "replace-with-a-long-random-secret"
+   $env:ADMIN_EMAIL = "admin@campus.360"
+   $env:ADMIN_PASSWORD = "replace-with-a-strong-password"
+   ```
+
+6. Start the application:
+
+   ```powershell
+   python app.py
+   ```
+
+7. Open `http://127.0.0.1:5000` in your browser.
+
+## Deploy to Vercel using GitHub
+
+### 1. Push the project to GitHub
+
+- Open your repository and upload/commit `app.py`, `requirements.txt`, `vercel.json`, and `README.md` at the repository root.
+- Confirm the latest commit appears on the branch configured for production (commonly `main`).
+- Never commit passwords, secret keys, or database credentials.
+
+### 2. Connect the repository in Vercel
+
+- Open the Vercel dashboard and choose **Add New → Project**.
+- Import the correct GitHub repository and grant Vercel access to it.
+- If the project already exists, open **Settings → Git** and verify the connected repository and production branch.
+
+### 3. Configure environment variables
+
+In **Vercel → Project → Settings → Environment Variables**, add the following for the **Production** environment (and Preview too, if needed):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SECRET_KEY` | Yes | Long, random session-signing secret. The app intentionally stops on Vercel if this is missing. |
+| `DATABASE_URL` | Strongly recommended for hosted use | Connection string for a managed PostgreSQL database. `POSTGRES_URL` and `POSTGRES_PRISMA_URL` are also recognized. |
+| `ADMIN_EMAIL` | To bootstrap the first admin | Must end in `@campus.360`, for example `admin@campus.360`. |
+| `ADMIN_PASSWORD` | To bootstrap the first admin | Strong initial password; the app hashes it before storing it. |
+| `ADMIN_NAME` | Optional | Display name for the first admin. |
+| `ADMIN_MOBILE` | Optional | Admin contact number. |
+
+Save the variables, then redeploy so the deployment receives them.
+
+### 4. Sign in and configure the campus
+
+- Open your deployed site and sign in through `/login`.
+- The first admin account is created only when the configured email does not already exist. Changing `ADMIN_PASSWORD` later does not automatically change an existing account's password.
+- Use the admin portal to create student accounts and worker credentials.
+- Add verified campus locations and official contact numbers before students rely on them.
+
+## If Vercel says “Git information retrieval failed”
+
+This is normally a repository integration/permissions problem, not an `app.py` syntax error.
+
+1. Check that the GitHub repository still exists and that your latest commit is pushed.
+2. In Vercel, open **Project → Settings → Git** and verify the correct repository is connected.
+3. In GitHub, open **Settings → Applications → Installed GitHub Apps**, select Vercel, and make sure it has access to the repository.
+4. Return to Vercel and retry the deployment. If the repository was renamed or moved, reconnect the correct repository in Vercel.
+5. If Git-based deployments remain unavailable, use the Vercel CLI from the project root after installing/signing in to the CLI. Fix repository access before relying on automatic Git deployments.
+
+## Database and file-storage notes
+
+- Vercel's local filesystem (including `/tmp`) is temporary. SQLite on Vercel is **not persistent**. Configure a managed PostgreSQL database through `DATABASE_URL` before using the hosted app for real data.
+- Existing SQLite records are not copied automatically when switching to PostgreSQL. The optional `migrate_sqlite_to_postgres.py` script can migrate a local database; back up both databases and review the script before running it.
+- Complaint image uploads are currently stored in the app's local upload folder. On Vercel these files are not durable. Use object storage (for example, Vercel Blob or another persistent file service) for production uploads.
+- The Campus Map starts empty until an administrator adds locations.
+- Replace sample/demo worker and emergency contact numbers with verified campus numbers before public use.
+- Emergency links open the device dialler; the app does not silently contact emergency services or transmit a user's location.
+- The AI assistant uses application rules and stored data. It is not connected to a hosted generative AI API and cannot know details that have not been entered into the app.
+
+## Security checklist
+
+- Keep `SECRET_KEY`, `ADMIN_PASSWORD`, and database credentials out of GitHub.
+- Use a unique, strong admin password and verify identity before approving password resets.
+- Use PostgreSQL and durable object storage for hosted use.
+- Replace all sample contact details before rollout.
+- Test admin, student, worker, complaint, and password-reset workflows in a staging deployment before real campus use.
