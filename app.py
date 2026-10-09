@@ -92,6 +92,16 @@ def initialize_database():
         comment TEXT DEFAULT '',
         FOREIGN KEY(complaint_id) REFERENCES complaints(id)
     );
+    CREATE TABLE IF NOT EXISTS password_reset_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_type TEXT NOT NULL,
+        account_id INTEGER NOT NULL,
+        email TEXT NOT NULL,
+        pending_password_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at TIMESTAMP
+    );
     """)
     # Upgrade older databases safely.
     existing = {r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()}
@@ -213,7 +223,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 </style></head><body>
 {% if session.get('user_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><div class="logo"><span>C</span>360</div><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else 'STUDENT SPACE' }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
-{% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">👷</span>Workers</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a>
+{% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">👷</span>Workers</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a><a href="{{url_for('admin_password_resets')}}" class="{{'active' if request.endpoint=='admin_password_resets' else ''}}"><span class="nav-icon">🔐</span>Password Requests</a>
 {% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
 </body></html>'''
 
@@ -237,7 +247,7 @@ def ai_reply(message):
     if "emergency" in m: return "For a campus emergency, use the Emergency Help number shown on the Contacts page. If there is immediate danger, contact local emergency services."
     return "I can help with Campus Care. Try asking: ‘How do I submit a complaint?’, ‘Why is my complaint still in progress?’, ‘The app is not working’, ‘Show contacts’, or ‘How can admin see students?’"
 
-LOGIN = r'''<div class="auth-card"><div class="auth-brand"><div class="logo"><span>C</span>360</div><div><h1>Campus Care</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care administration only. Use your assigned email and password.</div></div>'''
+LOGIN = r'''<div class="auth-card"><div class="auth-brand"><div class="logo"><span>C</span>360</div><div><h1>Campus Care</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link"><a href="{{url_for('forgot_password')}}">Forgot password?</a></div><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care administration only. Use your assigned email and password.</div></div>'''
 
 REGISTER = r'''<div class="auth-card"><div class="auth-brand"><div class="logo"><span>C</span>360</div><div><h1>Campus Care</h1><span>Create your student support account</span></div></div><h2>Join Campus Care.</h2><p>Your registration details will be visible to authorized admins for support management.</p><form method="POST"><div><label>Full name *</label><input name="name" required placeholder="Your full name"></div><div><label>Email *</label><input type="email" name="email" required placeholder="yourname@campus.360"></div><div><label>Mobile number *</label><input name="mobile" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit mobile number"></div><div class="form-grid"><div><label>Student ID</label><input name="student_id" placeholder="CC2026002"></div><div><label>Hostel / Room</label><input name="room" placeholder="B-204"></div><div><label>Department</label><input name="department" placeholder="CSE"></div><div><label>Year</label><select name="year"><option value="">Select year</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option></select></div></div><div><label>Password *</label><input type="password" name="password" required placeholder="Create a password"></div><button class="btn btn-blue" style="justify-content:center" type="submit">Create account →</button></form><div class="auth-link">Already registered? <a href="{{url_for('login')}}">Sign in</a></div></div>'''
 
@@ -257,6 +267,90 @@ def login():
             session.clear(); session.update(user_id=u['id'],name=u['name'],role=u['role']); return redirect(url_for('home'))
         flash('Invalid email or password.','error')
     return render_page(render_template_string(LOGIN),'Login')
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        if not valid_campus_email(email):
+            flash('Enter your registered campus email ending in @campus.360.', 'error')
+            return redirect(url_for('forgot_password'))
+        if len(new_password) < 8:
+            flash('Choose a password with at least 8 characters.', 'error')
+            return redirect(url_for('forgot_password'))
+        if new_password != confirm_password:
+            flash('The passwords do not match.', 'error')
+            return redirect(url_for('forgot_password'))
+        con = get_db()
+        user = con.execute("SELECT id,email FROM users WHERE lower(email)=? AND role='student'", (email,)).fetchone()
+        account_type = 'student'
+        account_id = user['id'] if user else None
+        if not user:
+            worker = con.execute('SELECT id,email FROM workers WHERE lower(email)=? AND active=1', (email,)).fetchone()
+            if worker:
+                account_type = 'worker'
+                account_id = worker['id']
+        if account_id is None:
+            con.close()
+            # Avoid revealing whether an email exists.
+            flash('If the account exists, your reset request can be reviewed by the administrator.', 'success')
+            return redirect(url_for('login'))
+        pending = con.execute("SELECT id FROM password_reset_requests WHERE account_type=? AND account_id=? AND status='Pending'", (account_type, account_id)).fetchone()
+        if pending:
+            con.close()
+            flash('A password reset request is already awaiting admin approval.', 'success')
+            return redirect(url_for('login'))
+        con.execute('INSERT INTO password_reset_requests(account_type,account_id,email,pending_password_hash) VALUES(?,?,?,?)',
+                     (account_type, account_id, email, generate_password_hash(new_password)))
+        con.commit()
+        con.close()
+        flash('Your password reset request has been sent to the administrator for approval. Your password will not change until it is approved.', 'success')
+        return redirect(url_for('login'))
+    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><div class="logo"><span>C</span>360</div><div><h1>Campus Care</h1><span>Secure account recovery</span></div></div><h2>Reset password.</h2><p>Submit a reset request. An administrator must approve it before your password changes.</p><form method="POST"><div><label>Registered campus email</label><input type="email" name="email" required placeholder="you@campus.360" pattern="[^@\s]+@campus\.360"></div><div><label>New password</label><input type="password" name="new_password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters"></div><div><label>Confirm new password</label><input type="password" name="confirm_password" minlength="8" required autocomplete="new-password" placeholder="Re-enter new password"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Send approval request →</button></form><div class="demo">Your new password remains pending until the Campus Care administrator verifies and approves this request.</div><div class="auth-link"><a href="{{url_for('login')}}">← Back to login</a></div></div>''')
+    return render_page(body, 'Forgot Password', 'ACCOUNT RECOVERY')
+
+@app.route('/admin/password-resets', methods=['GET', 'POST'])
+def admin_password_resets():
+    if not require('admin'):
+        return redirect(url_for('login'))
+    con = get_db()
+    if request.method == 'POST':
+        request_id = request.form.get('request_id', '').strip()
+        action = request.form.get('action', '').strip()
+        reset = con.execute("SELECT * FROM password_reset_requests WHERE id=? AND status='Pending'", (request_id,)).fetchone() if request_id.isdigit() else None
+        if not reset:
+            flash('That pending request could not be found.', 'error')
+        elif action == 'approve':
+            if reset['account_type'] == 'student':
+                exists = con.execute("SELECT id FROM users WHERE id=? AND role='student'", (reset['account_id'],)).fetchone()
+                if exists:
+                    con.execute('UPDATE users SET password=? WHERE id=?', (reset['pending_password_hash'], reset['account_id']))
+                else:
+                    exists = None
+            else:
+                exists = con.execute('SELECT id FROM workers WHERE id=? AND active=1', (reset['account_id'],)).fetchone()
+                if exists:
+                    con.execute('UPDATE workers SET password=? WHERE id=?', (reset['pending_password_hash'], reset['account_id']))
+            if exists:
+                con.execute("UPDATE password_reset_requests SET status='Approved', reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (reset['id'],))
+                con.commit()
+                flash('Password reset approved for ' + reset['email'] + '. The new password is now active.', 'success')
+            else:
+                con.execute("UPDATE password_reset_requests SET status='Rejected', reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (reset['id'],))
+                con.commit()
+                flash('Account no longer exists or is inactive. Request rejected.', 'error')
+        elif action == 'reject':
+            con.execute("UPDATE password_reset_requests SET status='Rejected', reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (reset['id'],))
+            con.commit()
+            flash('Password reset request rejected.', 'success')
+        else:
+            flash('Unknown action.', 'error')
+    requests = con.execute('''SELECT * FROM password_reset_requests ORDER BY CASE status WHEN 'Pending' THEN 0 ELSE 1 END, created_at DESC''').fetchall()
+    con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">ACCOUNT SECURITY</div><h1>Password reset requests</h1><p>Verify the requester’s identity before approving a password change.</p></div></div><div class="admin-list">{% for r in requests %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">REQUEST #{{r['id']}} · {{r['account_type']|title}} · {{r['created_at']}}</div><div class="admin-title">{{r['email']}}</div><div class="admin-meta">Requested status: {{r['status']}}</div></div><span class="chip {{'progress' if r['status']=='Pending' else ('resolved' if r['status']=='Approved' else 'closed')}}">{{r['status']}}</span></div>{% if r['status']=='Pending' %}<p class="admin-desc">The user’s proposed new password is stored as a hash and cannot be viewed here. Confirm their identity through a trusted channel before approving.</p><form method="POST" style="display:flex;gap:10px;flex-wrap:wrap"><input type="hidden" name="request_id" value="{{r['id']}}"><button class="btn btn-primary" name="action" value="approve" type="submit" onclick="return confirm('Verify this user first. Approve this password reset?')">Approve reset</button><button class="btn btn-light" name="action" value="reject" type="submit" onclick="return confirm('Reject this password reset request?')">Reject</button></form>{% else %}<div class="admin-meta">Reviewed: {{r['reviewed_at'] or '—'}}</div>{% endif %}</div>{% else %}<div class="empty">No password reset requests yet.</div>{% endfor %}</div>''', requests=requests)
+    return render_page(body, 'Password Reset Requests', 'ACCOUNT SECURITY')
 
 @app.route('/register', methods=['GET','POST'])
 def register():
