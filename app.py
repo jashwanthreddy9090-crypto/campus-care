@@ -910,4 +910,5 @@ def campus_map():
 initialize_database()
 if os.environ.get("VERCEL") and not DATABASE_URL:
     logging.warning("DATABASE_URL is not configured: SQLite data in /tmp is temporary and may disappear across Vercel instances. Configure a managed PostgreSQL database for persistent records.")
-if __name__=='__main__': app.run(debug=False,host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
+if __name__ == "__main__":
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
