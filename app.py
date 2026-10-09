@@ -98,11 +98,26 @@ def initialize_database():
     existing_c = {r[1] for r in con.execute("PRAGMA table_info(complaints)").fetchall()}
     if "assigned_worker_id" not in existing_c:
         con.execute("ALTER TABLE complaints ADD COLUMN assigned_worker_id INTEGER DEFAULT NULL")
-    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "")
-    if admin_email and admin_password and valid_campus_email(admin_email):
-        if not con.execute("SELECT 1 FROM users WHERE email=?", (admin_email,)).fetchone():
-            con.execute("INSERT INTO users(name,email,password,role,mobile,department) VALUES(?,?,?,?,?,?)", (os.environ.get("ADMIN_NAME", "Campus Administrator"), admin_email, generate_password_hash(admin_password), "admin", os.environ.get("ADMIN_MOBILE", ""), "Campus Administration"))
+    # Admin bootstrap: environment variables override these demo defaults.
+    # Change the default password immediately before using this app publicly.
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@campus.360").strip().lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Campus360@Admin2026!")
+    admin_name = os.environ.get("ADMIN_NAME", "Campus Administrator").strip() or "Campus Administrator"
+    admin_mobile = os.environ.get("ADMIN_MOBILE", "")
+    if valid_campus_email(admin_email) and admin_password:
+        existing_admin = con.execute("SELECT id FROM users WHERE email=?", (admin_email,)).fetchone()
+        password_hash = generate_password_hash(admin_password)
+        if existing_admin:
+            # Keep the configured admin credentials in sync, including password resets.
+            con.execute(
+                "UPDATE users SET name=?, password=?, role='admin', mobile=?, department=? WHERE email=?",
+                (admin_name, password_hash, admin_mobile, "Campus Administration", admin_email),
+            )
+        else:
+            con.execute(
+                "INSERT INTO users(name,email,password,role,mobile,department) VALUES(?,?,?,?,?,?)",
+                (admin_name, admin_email, password_hash, "admin", admin_mobile, "Campus Administration"),
+            )
     for name, dept, mobile in DEMO_WORKERS:
         if not con.execute("SELECT 1 FROM workers WHERE name=? AND department=?", (name,dept)).fetchone():
             con.execute("INSERT INTO workers(name,department,mobile) VALUES(?,?,?)", (name,dept,mobile))
