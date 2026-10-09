@@ -200,6 +200,16 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 .emergency-call{display:inline-flex;align-items:center;gap:9px;background:#b51f32;color:white;padding:13px 18px;border-radius:13px;font-weight:900}
 @media(max-width:760px){.emergency-actions{grid-template-columns:1fr}.emergency-tile{padding:15px}.emergency-panel{padding:22px}}
 
+
+/* ChatGPT-inspired Campus Care AI workspace */
+.chatgpt-shell{min-height:calc(100vh - 160px);height:calc(100vh - 160px);max-height:980px;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #e9e2d8;border-radius:24px;overflow:hidden;box-shadow:0 18px 55px rgba(30,20,18,.07);margin-top:-12px}
+.chatgpt-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #eee7df;background:rgba(255,253,249,.96)}
+.chatgpt-title-wrap{display:flex;align-items:center;gap:12px}.chatgpt-mark,.chatgpt-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,#a61e2d,#401016);color:#fff;font-size:20px;box-shadow:0 6px 18px rgba(126,25,39,.2)}
+.chatgpt-title-wrap h1{font-size:16px;margin:0;color:#211b19;letter-spacing:-.3px}.chatgpt-title-wrap p{margin:3px 0 0;color:#91857d;font-size:11px}.chatgpt-clear-form{margin:0}.chatgpt-clear{border:1px solid #e6ddd4;border-radius:12px;background:#fff;color:#3b302b;padding:10px 13px;font-size:12px;font-weight:750;display:flex;gap:7px;align-items:center}.chatgpt-clear:hover{background:#f8f1e9}
+.chatgpt-conversation{flex:1;overflow:auto;padding:28px clamp(18px,7vw,100px);scroll-behavior:smooth;background:radial-gradient(ellipse at 50% 0%,rgba(248,238,225,.55),transparent 46%),#fffdf9}.chatgpt-welcome{max-width:780px;margin:5vh auto 20px;text-align:center}.welcome-orb{width:64px;height:64px;margin:0 auto 22px;display:grid;place-items:center;border-radius:22px;color:white;font-size:30px;background:linear-gradient(145deg,#a91e2c,#261c1c);box-shadow:0 12px 35px rgba(122,25,34,.2)}.chatgpt-welcome h2{font-size:clamp(25px,3vw,35px);letter-spacing:-1.2px;color:#201a18;margin:0 0 12px}.chatgpt-welcome>p{max-width:510px;margin:0 auto;color:#887c74;font-size:14px;line-height:1.7}.chatgpt-suggestions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:32px auto 0;text-align:left;max-width:670px}.chatgpt-suggestions button{position:relative;display:grid;grid-template-columns:30px 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;text-align:left;padding:16px;border:1px solid #eee5dc;background:rgba(255,255,255,.85);border-radius:17px;transition:transform .18s,border-color .18s,box-shadow .18s}.chatgpt-suggestions button:hover{transform:translateY(-2px);border-color:#d5b9ae;box-shadow:0 9px 24px rgba(44,26,20,.06)}.chatgpt-suggestions button span{grid-row:1/3;width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:#f8eee8;color:#922431;font-size:17px}.chatgpt-suggestions button b{font-size:12px;color:#352a26}.chatgpt-suggestions button small{font-size:11px;color:#92857c;margin-top:4px}
+.chatgpt-message{max-width:850px;margin:0 auto 25px;display:flex;gap:13px;align-items:flex-start;line-height:1.75;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.chatgpt-message.from-user{justify-content:flex-end}.chatgpt-message.from-user .chatgpt-message-content{max-width:min(80%,650px);background:#f3eee8;color:#2b2420;padding:12px 16px;border-radius:19px 19px 5px 19px}.chatgpt-message.from-ai{max-width:850px}.chatgpt-message.from-ai .chatgpt-avatar{flex:0 0 32px;width:32px;height:32px;border-radius:11px;font-size:15px}.chatgpt-message-content{min-width:0;max-width:calc(100% - 45px);color:#352d29}.chatgpt-speaker{font-size:12px;font-weight:850;color:#8c202b;margin:2px 0 5px}.chatgpt-message-text{font-size:14px;line-height:1.8}.chatgpt-composer-wrap{padding:12px clamp(14px,6vw,78px) 13px;background:linear-gradient(180deg,rgba(255,253,249,.8),#fffdf9 30%)}.chatgpt-composer{max-width:850px;margin:0 auto;display:flex;align-items:flex-end;gap:12px;padding:10px 10px 10px 18px;border:1px solid #e6dcd2;border-radius:24px;background:white;box-shadow:0 8px 28px rgba(35,22,18,.08);transition:border-color .2s,box-shadow .2s}.chatgpt-composer:focus-within{border-color:#c89a91;box-shadow:0 0 0 4px rgba(160,36,48,.07),0 8px 28px rgba(35,22,18,.06)}.chatgpt-composer textarea{border:0!important;box-shadow:none!important;outline:none;resize:none;min-height:28px;max-height:150px;padding:5px 0!important;background:transparent!important;border-radius:0!important;font-size:14px;line-height:1.55;color:#2c2421}.chatgpt-composer textarea::placeholder{color:#a1968e}.chatgpt-send{flex:0 0 38px;width:38px;height:38px;border:0;border-radius:14px;background:#8e1e2a;color:white;font-size:23px;font-weight:800;display:grid;place-items:center;transition:background .2s,transform .2s}.chatgpt-send:hover{background:#63141e;transform:translateY(-1px)}.chatgpt-disclaimer{text-align:center;font-size:10px;color:#a1968e;margin:10px 0 0}.chatgpt-disclaimer a{color:#8e1e2a;font-weight:850;text-decoration:underline}
+@media(max-width:760px){.chatgpt-shell{height:calc(100vh - 125px);min-height:570px;margin:0 -5px;border-radius:18px}.chatgpt-header{padding:14px}.chatgpt-clear span{display:none}.chatgpt-conversation{padding:22px 14px}.chatgpt-welcome{margin:5vh auto 15px}.chatgpt-suggestions{grid-template-columns:1fr;margin-top:24px}.chatgpt-suggestions button{padding:13px}.chatgpt-message{font-size:13px;gap:9px}.chatgpt-message.from-user .chatgpt-message-content{max-width:90%}.chatgpt-composer-wrap{padding:10px 10px 12px}.chatgpt-composer{padding-left:14px}}
+
 </style></head><body>
 {% if session.get('user_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><div class="logo"><span>C</span>360</div><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else 'STUDENT SPACE' }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
@@ -409,13 +419,62 @@ def help_support():
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">HELP & SUPPORT</div><h1>If Campus Care is not working</h1><p>Quick fixes for common problems during your demo or daily use.</p></div></div><div class="help-grid"><div class="help-card"><h3>🔐 Can't login?</h3><p class="muted">Check email and password. If needed, sign out and reopen the app. Confirm the Flask server is running.</p></div><div class="help-card"><h3>📤 Can't submit?</h3><p class="muted">Make sure title, category, location and description are filled. Refresh and try again.</p></div><div class="help-card"><h3>🖼️ Image upload fails?</h3><p class="muted">Use PNG, JPG, JPEG, GIF or WEBP. Try a smaller image and ensure the uploads folder can be created.</p></div><div class="help-card"><h3>📊 Status not updating?</h3><p class="muted">Ask an admin to save the complaint update again. Refresh the complaint page afterward.</p></div><div class="help-card"><h3>🧭 Page not opening?</h3><p class="muted">Restart the Python program and open http://127.0.0.1:5000 in your browser.</p></div><div class="help-card"><h3>🆘 Still stuck?</h3><p class="muted">Open AI Assistant or Contacts. For a project demo, show the issue and the troubleshooting workflow to your evaluator.</p></div></div><div class="faq" style="margin-top:22px"><details><summary>What should I do if the terminal shows a Python error?</summary><p>Read the last line of the traceback. It usually contains the file and line number. Fix the first error shown, restart Flask and refresh the browser.</p></details><details><summary>Where is complaint data stored?</summary><p>Campus Care stores data in the local SQLite file <b>campuscare.db</b> beside this Python file.</p></details><details><summary>Where are uploaded images stored?</summary><p>Images are saved in the <b>static/uploads</b> folder created automatically by the app.</p></details></div>''')
     return render_page(body,'Help & Support','HELP & SUPPORT')
 
-@app.route('/ai',methods=['GET','POST'])
+@app.route('/ai', methods=['GET', 'POST'])
 def ai_assistant():
-    if not session.get('user_id'): return redirect(url_for('login'))
-    answer=None; question=''
-    if request.method=='POST': question=request.form.get('message','').strip(); answer=ai_reply(question)
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">SMART SUPPORT</div><h1>Campus Care AI Assistant 🤖</h1><p>Ask questions about complaints, contacts, workers, login or app troubleshooting.</p></div></div><div class="ai-box"><div class="chat">{% if question %}<div class="msg user">{{question}}</div><div class="msg ai"><b>Campus Care Assistant</b><br>{{answer}}</div>{% else %}<div class="msg ai"><b>Campus Care Assistant</b><br>Hi {{session.get('name','Student').split()[0]}}! How can I help you today?</div><div class="msg ai">Try: “How do I submit a complaint?”<br>“My app is not working.”<br>“How can I contact the warden?”<br>“How can admin see registered students?”</div>{% endif %}</div><form class="chat-form" method="POST"><input name="message" value="{{question}}" required placeholder="Ask Campus Care Assistant…"><button class="btn btn-blue">Send</button></form></div>''',question=question,answer=answer)
-    return render_page(body,'AI Assistant','AI SUPPORT')
+    if not session.get('user_id'):
+        return redirect(url_for('login'))
+
+    history = session.get('ai_chat_history', [])
+    if request.method == 'POST':
+        action = request.form.get('action', 'send')
+        if action == 'clear':
+            session.pop('ai_chat_history', None)
+            return redirect(url_for('ai_assistant'))
+        question = request.form.get('message', '').strip()
+        if question:
+            history.append({'role': 'user', 'text': question})
+            history.append({'role': 'assistant', 'text': ai_reply(question)})
+            # Keep a bounded history so the session cookie remains manageable.
+            session['ai_chat_history'] = history[-24:]
+            session.modified = True
+        # Post/Redirect/Get clears the text box and prevents accidental resubmission.
+        return redirect(url_for('ai_assistant'))
+
+    body = render_template_string(r'''<div class="chatgpt-shell">
+      <header class="chatgpt-header">
+        <div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care AI</h1><p>Your campus support assistant</p></div></div>
+        <form method="POST" class="chatgpt-clear-form"><button class="chatgpt-clear" type="submit" name="action" value="clear" title="Start a new chat">＋ <span>New chat</span></button></form>
+      </header>
+      <main class="chatgpt-conversation" id="chatgptConversation">
+        {% if history %}
+          {% for item in history %}
+            <div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">
+              {% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}
+              <div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <section class="chatgpt-welcome"><div class="welcome-orb">✦</div><h2>How can I help you today?</h2><p>Ask about campus complaints, emergency contacts, login issues or tracking a report.</p>
+            <div class="chatgpt-suggestions">
+              <button type="button" onclick="useSuggestion('How do I submit a complaint?')"><span>＋</span><b>Submit a complaint</b><small>Learn how to report an issue</small></button>
+              <button type="button" onclick="useSuggestion('How can I track my complaint status?')"><span>⌁</span><b>Track a complaint</b><small>Understand status updates</small></button>
+              <button type="button" onclick="useSuggestion('What should I do if the app is not working?')"><span>⚙</span><b>Fix an app problem</b><small>Get troubleshooting steps</small></button>
+              <button type="button" onclick="useSuggestion('What number should I call in an emergency?')"><span>♡</span><b>Emergency help</b><small>Find urgent support guidance</small></button>
+            </div>
+          </section>
+        {% endif %}
+      </main>
+      <div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" required placeholder="Message Campus Care…" aria-label="Message Campus Care"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message" title="Send message">↑</button></form><p class="chatgpt-disclaimer">Campus Care AI can make mistakes. For immediate danger, call <a href="tel:112">112</a>.</p></div>
+    </div>
+    <script>
+      const chatInput = document.getElementById('chatgptInput');
+      function useSuggestion(text) { chatInput.value = text; chatInput.focus(); }
+      chatInput.addEventListener('input', function () { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 150) + 'px'; });
+      chatInput.addEventListener('keydown', function (event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('chatgptForm').requestSubmit(); } });
+      const conversation = document.getElementById('chatgptConversation');
+      conversation.scrollTop = conversation.scrollHeight;
+    </script>''', history=history)
+    return render_page(body, 'AI Assistant', 'AI SUPPORT')
 
 @app.route('/profile')
 def student_profile():
