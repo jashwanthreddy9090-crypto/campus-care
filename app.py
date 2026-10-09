@@ -1,11 +1,20 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify
-import sqlite3, os, uuid, re
+import sqlite3, os, uuid, re, json, logging
+from urllib.parse import urlparse
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "campuscare-dev-secret-key")
+app.secret_key = os.environ.get("SECRET_KEY", "")
+if not app.secret_key:
+    # A stable secret is mandatory in production; local development gets a warning-safe generated fallback.
+    app.secret_key = os.urandom(32).hex()
+    if os.environ.get("VERCEL"):
+        raise RuntimeError("Set SECRET_KEY in Vercel Environment Variables before deploying.")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")))
+logging.basicConfig(level=logging.INFO)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or os.environ.get("POSTGRES_PRISMA_URL") or "").strip()
 DATABASE = os.path.join("/tmp", "campuscare.db") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "campuscare.db")
 UPLOAD_FOLDER = os.path.join("/tmp", "campuscare_uploads") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -35,9 +44,44 @@ CONTACTS = [
     ("Emergency Help", "Emergency", "112"),
 ]
 
+class PostgresConnection:
+    """Small SQLite-compatible adapter for managed PostgreSQL (Neon/Vercel Postgres)."""
+    def __init__(self, dsn):
+        try:
+            import psycopg2
+            from psycopg2.extras import DictCursor
+        except ImportError as exc:
+            raise RuntimeError("DATABASE_URL is set but psycopg2-binary is missing. Add it to requirements.txt.") from exc
+        if dsn.startswith("postgres://"):
+            dsn = "postgresql://" + dsn[len("postgres://"):]
+        self._driver = psycopg2
+        self._conn = psycopg2.connect(dsn, cursor_factory=DictCursor, sslmode="require")
+    def execute(self, sql, params=()):
+        cur = self._conn.cursor()
+        if sql.strip().upper().startswith("PRAGMA TABLE_INFO("):
+            table = re.search(r"PRAGMA\s+table_info\(([^)]+)\)", sql, re.I).group(1).strip().strip('"`')
+            cur.execute("SELECT ordinal_position-1 AS cid, column_name AS name, data_type AS type, 0 AS not_null, column_default AS dflt_value, 0 AS pk FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s ORDER BY ordinal_position", (table,))
+            return cur
+        cur.execute(sql.replace("?", "%s"), tuple(params or ()))
+        return cur
+    def executescript(self, script):
+        # DDL statements in our schema contain no embedded semicolons.
+        for statement in script.split(";"):
+            statement = statement.strip()
+            if statement:
+                statement = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", statement, flags=re.I)
+                self.execute(statement)
+    def commit(self): self._conn.commit()
+    def rollback(self): self._conn.rollback()
+    def close(self): self._conn.close()
+
+
 def get_db():
-    con = sqlite3.connect(DATABASE)
+    if DATABASE_URL:
+        return PostgresConnection(DATABASE_URL)
+    con = sqlite3.connect(DATABASE, timeout=20)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
     return con
 
 def initialize_database():
@@ -102,6 +146,61 @@ def initialize_database():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         reviewed_at TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS notices(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'General',
+        priority TEXT NOT NULL DEFAULT 'Normal',
+        created_by INTEGER,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS notifications(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_type TEXT NOT NULL,
+        account_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        link TEXT DEFAULT '',
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lost_found(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        item_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        location TEXT NOT NULL,
+        item_date TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'Open',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS campus_locations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        building TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        hours TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
+        map_url TEXT DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS ai_chat_messages(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_type TEXT NOT NULL,
+        account_id INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_account ON notifications(account_type, account_id, is_read);
+    CREATE INDEX IF NOT EXISTS idx_lost_found_status ON lost_found(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_account ON ai_chat_messages(account_type, account_id, id);
+    CREATE INDEX IF NOT EXISTS idx_notices_active ON notices(active, created_at);
     """)
     # Upgrade older databases safely.
     existing = {r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()}
@@ -117,23 +216,17 @@ def initialize_database():
         con.execute("ALTER TABLE complaints ADD COLUMN assigned_worker_id INTEGER DEFAULT NULL")
     # Admin bootstrap: environment variables override these demo defaults.
     # Change the default password immediately before using this app publicly.
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@campus.360").strip().lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Campus360@Admin2026!")
+    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "")
     admin_name = os.environ.get("ADMIN_NAME", "Campus Administrator").strip() or "Campus Administrator"
     admin_mobile = os.environ.get("ADMIN_MOBILE", "")
     if valid_campus_email(admin_email) and admin_password:
         existing_admin = con.execute("SELECT id FROM users WHERE email=?", (admin_email,)).fetchone()
-        password_hash = generate_password_hash(admin_password)
-        if existing_admin:
-            # Keep the configured admin credentials in sync, including password resets.
-            con.execute(
-                "UPDATE users SET name=?, password=?, role='admin', mobile=?, department=? WHERE email=?",
-                (admin_name, password_hash, admin_mobile, "Campus Administration", admin_email),
-            )
-        else:
+        if not existing_admin:
+            password_hash = generate_password_hash(admin_password)
             con.execute(
                 "INSERT INTO users(name,email,password,role,mobile,department) VALUES(?,?,?,?,?,?)",
-                (admin_name, admin_email, password_hash, "admin", admin_mobile, "Campus Administration"),
+                (admin_name, admin_email, generate_password_hash(admin_password), "admin", admin_mobile, "Campus Administration"),
             )
     for name, dept, mobile in DEMO_WORKERS:
         if not con.execute("SELECT 1 FROM workers WHERE name=? AND department=?", (name,dept)).fetchone():
@@ -256,10 +349,10 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 @media(max-width:760px){.help-grid,.help-quicklinks{grid-template-columns:1fr}.help-hero{padding:23px}.help-hero:after{right:-5px;font-size:130px}.profile-hero{padding:21px;align-items:flex-start;gap:14px}.profile-hero .profile-avatar{width:64px;height:64px;flex-basis:64px;border-radius:20px;font-size:24px}.profile-details{grid-template-columns:1fr}.profile-info-card{padding:18px}}
 
 </style></head><body>
-{% if session.get('user_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><div class="logo logo-mark"><span class="logo-c">C</span><span class="logo-degree">360°</span></div><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else 'STUDENT SPACE' }}</div><nav class="nav">
+{% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><div class="logo logo-mark"><span class="logo-c">C</span><span class="logo-degree">360°</span></div><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
 {% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">👷</span>Workers</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a><a href="{{url_for('admin_password_resets')}}" class="{{'active' if request.endpoint=='admin_password_resets' else ''}}"><span class="nav-icon">🔐</span>Password Requests</a>
-{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
+{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
 </body></html>'''
 
 def render_page(body,title="Campus Care",eyebrow="CAMPUS CARE"):
@@ -269,27 +362,46 @@ def require(role):
     return session.get("role")==role
 
 def ai_reply(message):
-    m=message.lower().strip()
-    if not m: return "Hi! I’m Campus Care Assistant. Ask me about complaints, login, contacts, status, workers, or app problems."
-    if any(x in m for x in ["hello", "hi", "hey", "good morning", "good evening"]): return "Hey! 👋 Welcome to Campus Care. I can help you submit or track a complaint, find campus contacts, troubleshoot login problems, or understand how the worker portal works. What do you need help with?"
-    if any(x in m for x in ["thank you", "thanks", "thank u"]): return "You’re welcome! 😊 If you need anything else with your campus support, just ask."
-    if any(x in m for x in ["fire", "ambulance", "police", "sos", "emergency", "danger"]): return "🚨 If there is immediate danger in India, move to a safe place if possible and call 112. The SOS link in Campus Care opens your phone dialler; it does not silently send an alert. For campus-specific contacts, open Emergency / SOS in the menu."
-    if "forgot" in m and ("password" in m or "login" in m): return "Open Forgot password on the login page, enter your registered campus email and choose a new password. Your request will remain pending until an administrator verifies and approves it."
-    if any(x in m for x in ["worker portal", "worker login", "assigned job"]): return "Workers use the separate Worker Portal sign-in with credentials issued by the administrator. After login, open Assigned Work to review tasks and update the status with a short work note."
-    if any(x in m for x in ["admin", "create account", "student id", "worker id"]): return "For account security, only an administrator can create student and worker accounts and issue login credentials. Contact your campus admin if you need an account or need your details corrected."
-    if any(x in m for x in ["profile", "my details", "student id"]): return "Open My Profile from the sidebar to view your student ID, registered email, mobile, department, year, room and support activity. If anything is wrong, contact the administrator."
-    if any(x in m for x in ["resolved", "close complaint", "feedback"]): return "When your complaint is marked Resolved, open its status page to review the update and submit feedback if the option is shown. Your feedback helps the campus team improve support."
-    if any(x in m for x in ["where", "location", "room"] ) and "complaint" in m: return "When submitting a complaint, enter a precise location such as block, floor, room number or nearby landmark. This helps the assigned worker find the issue quickly."
-    if any(x in m for x in ["not working","app problem","error","bug","broken","website"]):
-        return "Try these steps: refresh the page, check your internet connection, sign out and sign in again, and try Chrome/Edge. If image upload fails, use JPG/PNG and a smaller file. If it still fails, open Help & Support and contact the admin with a screenshot."
-    if "login" in m or "password" in m: return "For login problems, use your registered email ending with @campus.360 and your password. If your account is not recognized, contact the campus administrator."
-    if "complaint" in m and ("register" in m or "submit" in m or "new" in m): return "Open New complaint, enter the issue title, category, location, priority and description, optionally attach a photo, then submit. You will receive a complaint ID such as CC-XXXXXXXX."
-    if "status" in m or "track" in m: return "Open your Dashboard and select a complaint. The status timeline shows Submitted, Assigned, In Progress, Resolved and Closed."
-    if "contact" in m or "phone" in m or "number" in m: return "Open Contacts in the sidebar to see campus support numbers for administration, hostel, maintenance, security and emergency help."
-    if "worker" in m or "staff" in m: return "The admin can assign a worker from the Workers list. The assigned worker name appears on the complaint status page."
-    if "student" in m and "admin" in m: return "Admins can open Students to view registered student details, contact information and complaint counts."
-    if "emergency" in m: return "For a campus emergency, use the Emergency Help number shown on the Contacts page. If there is immediate danger, contact local emergency services."
-    return "I can help with Campus Care. Try asking: ‘How do I submit a complaint?’, ‘Why is my complaint still in progress?’, ‘The app is not working’, ‘Show contacts’, or ‘How can admin see students?’"
+    m = (message or "").lower().strip()
+    if not m:
+        return "Hi! I’m Campus Care AI. Ask about complaints, campus notices, lost & found, the campus map, login, or support."
+    if any(x in m for x in ["lost", "found item", "lost and found"]):
+        return "Open Lost & Found from the menu. You can report an item you lost or found, browse open listings, and send a claim request without exposing another student's contact details."
+    if any(x in m for x in ["notice", "announcement", "holiday", "event"]):
+        con = get_db()
+        rows = con.execute("SELECT title,body,category,created_at FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 5").fetchall()
+        con.close()
+        if rows:
+            return "Recent campus notices:\n" + "\n".join([f"• {r['title']} ({r['category']}): {r['body'][:180]}" for r in rows])
+        return "There are no campus notices published yet. Open Campus Notices to check again later."
+    if any(x in m for x in ["map", "where is", "location of", "find the library", "find hostel"]):
+        return "Open Campus Map in the menu to browse campus buildings and service locations. If a location is missing, ask an administrator to add it."
+    if any(x in m for x in ["my complaint", "my complaints", "complaint status", "track", "status"]):
+        if session.get('role') == 'student':
+            con = get_db()
+            rows = con.execute("SELECT complaint_id,title,status,updated_at FROM complaints WHERE user_id=? ORDER BY updated_at DESC LIMIT 5", (session.get('user_id'),)).fetchall()
+            con.close()
+            if rows:
+                return "Your recent complaint updates:\n" + "\n".join([f"• {r['complaint_id']} — {r['title']}: {r['status']} (updated {r['updated_at']})" for r in rows])
+            return "You have not submitted a complaint yet. Use New Complaint to report an issue."
+        return "Open your dashboard to view complaint status. Students can track their own reports; workers can view assigned tasks."
+    if any(x in m for x in ["not working", "app problem", "error", "bug", "broken", "website"]):
+        return "Try refreshing the page, checking your internet connection, and signing in again. If an upload fails, use PNG/JPG and a smaller image. If the problem remains, open Help & Support and share the page, steps, and any error message."
+    if "login" in m or "password" in m or "forgot" in m:
+        return "Use the campus email and password issued by your administrator. Choose Forgot Password to request a reset; the password changes only after admin approval. Never share your password in chat."
+    if "complaint" in m and any(x in m for x in ["register", "submit", "new", "report"]):
+        return "Open New Complaint, add a title, category, location, priority and description, then submit. Keep the complaint reference ID for follow-up."
+    if "contact" in m or "phone" in m or "number" in m:
+        return "Open Contacts or Emergency & SOS from the menu to find campus support numbers. For immediate danger in India, call 112. Confirm campus contact numbers with the administration."
+    if "worker" in m or "staff" in m:
+        return "Workers sign in through Worker Portal and see jobs assigned by the administrator. The admin creates worker login credentials and assigns complaints."
+    if "student" in m and "admin" in m:
+        return "Only administrators can create student accounts. Admins can manage accounts from the Students section."
+    if "emergency" in m or "sos" in m or "ambulance" in m or "fire" in m:
+        return "Open Emergency & SOS for campus safety information. If there is immediate danger in India, call 112. The app does not silently send an SOS alert."
+    if "timetable" in m or "attendance" in m or "class" in m:
+        return "Campus Care's current release focuses on support workflows. Ask the administrator to publish verified timetable and attendance data before relying on these details."
+    return "I can help with complaints, notices, lost & found, campus locations, account access, workers and troubleshooting. Try asking: ‘Show my recent complaints’, ‘What are the latest notices?’, or ‘How do I report a lost item?’"
 
 LOGIN = r'''<div class="auth-card"><div class="auth-brand"><div class="logo logo-mark"><span class="logo-c">C</span><span class="logo-degree">360°</span></div><div><h1>Campus Care</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link"><a href="{{url_for('forgot_password')}}">Forgot password?</a></div><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care administration only. Use your assigned email and password.</div></div>'''
 
@@ -297,7 +409,7 @@ REGISTER = r'''<div class="auth-card"><div class="auth-brand"><div class="logo l
 
 @app.route('/')
 def home():
-    if not session.get('user_id'): return redirect(url_for('login'))
+    if not session.get('user_id') and not session.get('worker_id'): return redirect(url_for('login'))
     return redirect(url_for('admin_dashboard' if session.get('role')=='admin' else ('worker_dashboard' if session.get('role')=='worker' else 'student_dashboard')))
 
 @app.route('/login',methods=['GET','POST'])
@@ -380,6 +492,8 @@ def admin_password_resets():
             if exists:
                 con.execute("UPDATE password_reset_requests SET status='Approved', reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (reset['id'],))
                 con.commit()
+                if reset['account_type'] == 'student': create_notification('user', reset['account_id'], 'Password reset approved', 'Your password reset was approved. You can now sign in with the new password.', url_for('login'))
+                else: create_notification('worker', reset['account_id'], 'Password reset approved', 'Your password reset was approved. You can now sign in with the new password.', url_for('worker_login'))
                 flash('Password reset approved for ' + reset['email'] + '. The new password is now active.', 'success')
             else:
                 con.execute("UPDATE password_reset_requests SET status='Rejected', reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (reset['id'],))
@@ -396,10 +510,10 @@ def admin_password_resets():
     body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">ACCOUNT SECURITY</div><h1>Password reset requests</h1><p>Verify the requester’s identity before approving a password change.</p></div></div><div class="admin-list">{% for r in requests %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">REQUEST #{{r['id']}} · {{r['account_type']|title}} · {{r['created_at']}}</div><div class="admin-title">{{r['email']}}</div><div class="admin-meta">Requested status: {{r['status']}}</div></div><span class="chip {{'progress' if r['status']=='Pending' else ('resolved' if r['status']=='Approved' else 'closed')}}">{{r['status']}}</span></div>{% if r['status']=='Pending' %}<p class="admin-desc">The user’s proposed new password is stored as a hash and cannot be viewed here. Confirm their identity through a trusted channel before approving.</p><form method="POST" style="display:flex;gap:10px;flex-wrap:wrap"><input type="hidden" name="request_id" value="{{r['id']}}"><button class="btn btn-primary" name="action" value="approve" type="submit" onclick="return confirm('Verify this user first. Approve this password reset?')">Approve reset</button><button class="btn btn-light" name="action" value="reject" type="submit" onclick="return confirm('Reject this password reset request?')">Reject</button></form>{% else %}<div class="admin-meta">Reviewed: {{r['reviewed_at'] or '—'}}</div>{% endif %}</div>{% else %}<div class="empty">No password reset requests yet.</div>{% endfor %}</div>''', requests=requests)
     return render_page(body, 'Password Reset Requests', 'ACCOUNT SECURITY')
 
-@app.route('/register', methods=['GET','POST'])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
-    # Public self-registration is intentionally disabled. Admin creates student accounts.
-    flash('Accounts are created by the Campus Care administrator. Please use your assigned credentials.', 'error')
+    # Student accounts are created by administrators only.
+    flash('Student accounts are issued by Campus Care administration. Please contact your administrator.', 'error')
     return redirect(url_for('login'))
 
 @app.route('/worker/login', methods=['GET','POST'])
@@ -437,8 +551,10 @@ def worker_update_job(id):
         status = 'In Progress'
     remark = request.form.get('remark','').strip()
     con = get_db()
+    job = con.execute('SELECT user_id,complaint_id,title FROM complaints WHERE id=? AND assigned_worker_id=?',(id,session['worker_id'])).fetchone()
     cur = con.execute("UPDATE complaints SET status=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND assigned_worker_id=?", (status, remark, id, session['worker_id']))
     con.commit(); con.close()
+    if job and cur.rowcount: create_notification('user', job['user_id'], 'Worker updated your complaint', f"{job['complaint_id']} · {job['title']} is now {status}.", url_for('complaint_status', complaint_id=job['complaint_id']))
     flash('Task updated.' if cur.rowcount else 'That task is not assigned to your account.', 'success' if cur.rowcount else 'error')
     return redirect(url_for('worker_dashboard'))
 
@@ -448,8 +564,8 @@ def logout(): session.clear(); return redirect(url_for('login'))
 @app.route('/student')
 def student_dashboard():
     if not require('student'): return redirect(url_for('login'))
-    con=get_db(); cs=con.execute('SELECT * FROM complaints WHERE user_id=? ORDER BY created_at DESC',(session['user_id'],)).fetchall(); con.close(); counts={s:sum(1 for c in cs if c['status']==s) for s in STATUSES}
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div><a class="floating-ai" title="AI Assistant" href="{{url_for('ai_assistant')}}">🤖</a>''',cs=cs,counts=counts)
+    con=get_db(); cs=con.execute('SELECT * FROM complaints WHERE user_id=? ORDER BY created_at DESC',(session['user_id'],)).fetchall(); notices=con.execute('SELECT * FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 4').fetchall(); unread=con.execute("SELECT COUNT(*) n FROM notifications WHERE account_type='user' AND account_id=? AND is_read=0",(session['user_id'],)).fetchone()['n']; con.close(); counts={s:sum(1 for c in cs if c['status']==s) for s in STATUSES}
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your campus today</h3><span>{{unread}} unread notifications</span></div><div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('notices_page')}}"><span class="help-quick-icon">▤</span><span><b>Campus notices</b><small>Latest announcements</small></span></a><a class="help-quicklink" href="{{url_for('notifications_page')}}"><span class="help-quick-icon">♢</span><span><b>Notifications · {{unread}}</b><small>Complaint and campus updates</small></span></a><a class="help-quicklink" href="{{url_for('lost_found_page')}}"><span class="help-quick-icon">⌕</span><span><b>Lost & Found</b><small>Find or report an item</small></span></a><a class="help-quicklink" href="{{url_for('campus_map')}}"><span class="help-quick-icon">⌖</span><span><b>Campus Map</b><small>Find campus services</small></span></a></div><div class="section-title"><h3>Recent campus notices</h3><span><a href="{{url_for('notices_page')}}">View all →</a></span></div><div class="complaints">{% for n in notices %}<div class="complaint-row"><div><div class="row-meta">{{n['category']}} · {{n['created_at']}}</div><div class="row-title">{{n['title']}}</div><div class="row-sub">{{n['body']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else 'submitted'}}">{{n['priority']}}</span></div>{% else %}<div class="empty">No campus notices have been published yet.</div>{% endfor %}</div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div><a class="floating-ai" title="AI Assistant" href="{{url_for('ai_assistant')}}">🤖</a>''',cs=cs,counts=counts,notices=notices,unread=unread)
     return render_page(body,'Student Dashboard','STUDENT SPACE')
 
 @app.route('/complaint/new',methods=['GET','POST'])
@@ -461,7 +577,7 @@ def new_complaint():
         if f and f.filename:
             if not allowed_file(f.filename): flash('Please upload PNG, JPG, JPEG, GIF or WEBP.','error'); return redirect(url_for('new_complaint'))
             image=secure_filename(uuid.uuid4().hex[:10]+'_'+f.filename); f.save(os.path.join(UPLOAD_FOLDER,image))
-        cid='CC-'+uuid.uuid4().hex[:8].upper(); con=get_db(); con.execute('INSERT INTO complaints(complaint_id,user_id,category,title,description,location,priority,image) VALUES(?,?,?,?,?,?,?,?)',(cid,session['user_id'],category,title,desc,location,priority,image)); con.commit(); con.close(); flash(f'Complaint {cid} submitted successfully.','success'); return redirect(url_for('complaint_status',complaint_id=cid))
+        cid='CC-'+uuid.uuid4().hex[:8].upper(); con=get_db(); con.execute('INSERT INTO complaints(complaint_id,user_id,category,title,description,location,priority,image) VALUES(?,?,?,?,?,?,?,?)',(cid,session['user_id'],category,title,desc,location,priority,image)); con.commit(); con.close(); create_notification('user', session['user_id'], 'Complaint submitted', f'Your report {cid} was received.', url_for('complaint_status', complaint_id=cid)); flash(f'Complaint {cid} submitted successfully.','success'); return redirect(url_for('complaint_status',complaint_id=cid))
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">NEW REPORT</div><h1>Tell us what needs attention</h1><p>A clear report helps the campus team solve it faster.</p></div></div><div class="card"><form method="POST" enctype="multipart/form-data"><div class="form-grid"><div class="full"><label>What is the issue? *</label><input name="title" required placeholder="Example: Water leaking near room B-204"></div><div><label>Category *</label><select name="category" required><option value="">Choose a category</option>{% for c in categories %}<option>{{c}}</option>{% endfor %}</select></div><div><label>Location *</label><input name="location" required placeholder="Block B, Room 204"></div><div><label>Priority</label><select name="priority">{% for p in priorities %}<option>{{p}}</option>{% endfor %}</select></div><div><label>Photo evidence</label><div class="upload">Attach an image if useful<input type="file" name="image" accept="image/*"></div></div><div class="full"><label>Description *</label><textarea name="description" required placeholder="Explain what happened, when you noticed it and anything that may help the staff."></textarea></div></div><div class="form-actions"><a class="btn btn-light" href="{{url_for('student_dashboard')}}">Cancel</a><button class="btn btn-primary" type="submit">Submit complaint →</button></div></form></div>''')
     return render_page(body,'New Complaint','NEW REPORT')
 
@@ -500,7 +616,10 @@ def admin_dashboard():
 def update_complaint(id):
     if not require('admin'): return redirect(url_for('login'))
     status=request.form.get('status','Submitted'); status=status if status in STATUSES else 'Submitted'; wid=request.form.get('worker_id','').strip(); remark=request.form.get('remark','').strip(); con=get_db(); worker=con.execute('SELECT * FROM workers WHERE id=?',(wid,)).fetchone() if wid.isdigit() else None
-    con.execute('UPDATE complaints SET status=?,assigned_worker_id=?,assigned_to=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(status,worker['id'] if worker else None,worker['name'] if worker else '',remark,id)); con.commit(); con.close(); flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
+    row=con.execute('SELECT user_id,complaint_id,title FROM complaints WHERE id=?',(id,)).fetchone(); con.execute('UPDATE complaints SET status=?,assigned_worker_id=?,assigned_to=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(status,worker['id'] if worker else None,worker['name'] if worker else '',remark,id)); con.commit(); con.close();
+    if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
+    if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
+    flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/students', methods=['GET','POST'])
 def admin_students():
@@ -516,8 +635,9 @@ def admin_students():
                 sid='CC'+str(2026000+next_id)
                 con.execute('INSERT INTO users(name,email,password,role,room,mobile,student_id,department,year) VALUES(?,?,?,?,?,?,?,?,?)',(name,email,generate_password_hash(password),'student',room,mobile,sid,dept,year)); con.commit()
                 flash('Student account created. Student ID: '+sid, 'success')
-            except sqlite3.IntegrityError:
-                flash('That email is already registered.', 'error')
+            except Exception:
+                con.rollback()
+                flash('That email is already registered or the database rejected the request.', 'error')
     q=request.args.get('q','').strip(); sql="SELECT u.*,COUNT(c.id) complaints_count,SUM(CASE WHEN c.status='Resolved' THEN 1 ELSE 0 END) resolved_count FROM users u LEFT JOIN complaints c ON c.user_id=u.id WHERE u.role='student'"; params=[]
     if q: sql+=" AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.student_id LIKE ? OR u.department LIKE ?)"; params += [f'%{q}%']*5
     sql+=' GROUP BY u.id ORDER BY u.created_at DESC'; students=con.execute(sql,params).fetchall(); con.close()
@@ -536,8 +656,9 @@ def admin_workers():
             try:
                 code='WK'+uuid.uuid4().hex[:6].upper()
                 con.execute('INSERT INTO workers(name,department,mobile,email,password,worker_code) VALUES(?,?,?,?,?,?)',(name,dept,mobile,email,generate_password_hash(password),code)); con.commit(); flash('Worker login created. Worker ID: '+code, 'success')
-            except sqlite3.IntegrityError:
-                flash('That worker email is already in use.', 'error')
+            except Exception:
+                con.rollback()
+                flash('That worker email is already in use or the database rejected the request.', 'error')
     workers=con.execute('SELECT * FROM workers ORDER BY active DESC,name').fetchall(); con.close()
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKFORCE</div><h1>Workers & staff</h1><p>Create staff accounts and issue their private sign-in credentials.</p></div></div><div class="card" style="margin-bottom:20px"><h3>Create worker login</h3><form class="form-grid" method="POST"><div><label>Worker name</label><input name="name" required placeholder="Worker name"></div><div><label>Department</label><input name="department" required placeholder="Electrical / Plumbing / Cleaning"></div><div><label>Mobile number</label><input name="mobile" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit number"></div><div><label>Work email (@campus.360)</label><input name="email" type="email" required placeholder="worker@campus.360"></div><div><label>Temporary password (8+ chars)</label><input name="password" type="password" minlength="8" required></div><div style="display:flex;align-items:end"><button class="btn btn-primary" type="submit">＋ Create worker credentials</button></div></form><p class="muted">Existing demo workers have no portal login until you create an account for them here.</p></div><div class="worker-grid">{% for w in workers %}<div class="worker-card"><div class="avatar" style="margin-bottom:12px">{{w['name'][0]|upper}}</div><h3>{{w['name']}}</h3><div class="muted">{{w['department']}}</div><div class="muted">{{w['email'] or 'No portal login assigned'}}</div><div class="muted">Worker ID: {{w['worker_code'] or '—'}}</div><a class="phone" href="tel:{{w['mobile']}}">☎ {{w['mobile']}}</a></div>{% endfor %}</div>''',workers=workers)
     return render_page(body,'Workers','WORKFORCE')
@@ -569,59 +690,35 @@ def help_support():
 
 @app.route('/ai', methods=['GET', 'POST'])
 def ai_assistant():
-    if not session.get('user_id'):
+    if not session.get('user_id') and not session.get('worker_id'):
         return redirect(url_for('login'))
-
-    history = session.get('ai_chat_history', [])
+    account_type = 'worker' if session.get('role') == 'worker' else 'user'
+    account_id = session.get('worker_id') if account_type == 'worker' else session.get('user_id')
+    con = get_db()
     if request.method == 'POST':
         action = request.form.get('action', 'send')
         if action == 'clear':
-            session.pop('ai_chat_history', None)
+            con.execute('DELETE FROM ai_chat_messages WHERE account_type=? AND account_id=?', (account_type, account_id))
+            con.commit(); con.close()
             return redirect(url_for('ai_assistant'))
-        question = request.form.get('message', '').strip()
+        question = request.form.get('message', '').strip()[:1500]
         if question:
-            history.append({'role': 'user', 'text': question})
-            history.append({'role': 'assistant', 'text': ai_reply(question)})
-            # Keep a bounded history so the session cookie remains manageable.
-            session['ai_chat_history'] = history[-24:]
-            session.modified = True
-        # Post/Redirect/Get clears the text box and prevents accidental resubmission.
+            answer = ai_reply(question)
+            con.execute('INSERT INTO ai_chat_messages(account_type,account_id,role,message) VALUES(?,?,?,?)', (account_type, account_id, 'user', question))
+            con.execute('INSERT INTO ai_chat_messages(account_type,account_id,role,message) VALUES(?,?,?,?)', (account_type, account_id, 'assistant', answer))
+            con.commit()
+        con.close()
         return redirect(url_for('ai_assistant'))
-
+    rows = con.execute('SELECT role,message FROM ai_chat_messages WHERE account_type=? AND account_id=? ORDER BY id DESC LIMIT 24', (account_type, account_id)).fetchall()
+    con.close()
+    history = [{'role': r['role'], 'text': r['message']} for r in reversed(rows)]
     body = render_template_string(r'''<div class="chatgpt-shell">
-      <header class="chatgpt-header">
-        <div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care AI</h1><p>Your campus support assistant</p></div></div>
-        <form method="POST" class="chatgpt-clear-form"><button class="chatgpt-clear" type="submit" name="action" value="clear" title="Start a new chat">＋ <span>New chat</span></button></form>
-      </header>
+      <header class="chatgpt-header"><div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care AI</h1><p>Campus-aware support assistant · Chat history saved to your account</p></div></div><form method="POST"><button class="chatgpt-clear" type="submit" name="action" value="clear">＋ <span>New chat</span></button></form></header>
       <main class="chatgpt-conversation" id="chatgptConversation">
-        {% if history %}
-          {% for item in history %}
-            <div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">
-              {% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}
-              <div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <section class="chatgpt-welcome"><div class="welcome-orb">✦</div><h2>How can I help you today?</h2><p>Ask about campus complaints, emergency contacts, login issues or tracking a report.</p>
-            <div class="chatgpt-suggestions">
-              <button type="button" onclick="useSuggestion('How do I submit a complaint?')"><span>＋</span><b>Submit a complaint</b><small>Learn how to report an issue</small></button>
-              <button type="button" onclick="useSuggestion('How can I track my complaint status?')"><span>⌁</span><b>Track a complaint</b><small>Understand status updates</small></button>
-              <button type="button" onclick="useSuggestion('What should I do if the app is not working?')"><span>⚙</span><b>Fix an app problem</b><small>Get troubleshooting steps</small></button>
-              <button type="button" onclick="useSuggestion('What number should I call in an emergency?')"><span>♡</span><b>Emergency help</b><small>Find urgent support guidance</small></button>
-            </div>
-          </section>
-        {% endif %}
-      </main>
-      <div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" required placeholder="Message Campus Care…" aria-label="Message Campus Care"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message" title="Send message">↑</button></form><p class="chatgpt-disclaimer">Campus Care AI can make mistakes. For immediate danger, call <a href="tel:112">112</a>.</p></div>
-    </div>
-    <script>
-      const chatInput = document.getElementById('chatgptInput');
-      function useSuggestion(text) { chatInput.value = text; chatInput.focus(); }
-      chatInput.addEventListener('input', function () { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 150) + 'px'; });
-      chatInput.addEventListener('keydown', function (event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('chatgptForm').requestSubmit(); } });
-      const conversation = document.getElementById('chatgptConversation');
-      conversation.scrollTop = conversation.scrollHeight;
-    </script>''', history=history)
+        {% if history %}{% for item in history %}<div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">{% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}<div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div></div>{% endfor %}
+        {% else %}<section class="chatgpt-welcome"><div class="welcome-orb">✦</div><h2>How can I help you today?</h2><p>Ask about your complaints, campus notices, lost items, locations or account access.</p><div class="chatgpt-suggestions"><button type="button" onclick="useSuggestion('Show my recent complaints')"><span>⌁</span><b>My complaints</b><small>Check recent status updates</small></button><button type="button" onclick="useSuggestion('What are the latest campus notices?')"><span>▤</span><b>Campus notices</b><small>See recent announcements</small></button><button type="button" onclick="useSuggestion('How do I report a lost item?')"><span>⌕</span><b>Lost & Found</b><small>Report or claim an item</small></button><button type="button" onclick="useSuggestion('How can I reset my password?')"><span>🔐</span><b>Account help</b><small>Request an admin-approved reset</small></button></div></section>{% endif %}
+      </main><div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" maxlength="1500" required placeholder="Message Campus Care…" aria-label="Message Campus Care"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message">↑</button></form><p class="chatgpt-disclaimer">Answers use available campus data and may be incomplete. For immediate danger in India, call <a href="tel:112">112</a>.</p></div></div>
+    <script>const chatInput=document.getElementById('chatgptInput');function useSuggestion(text){chatInput.value=text;chatInput.focus();}chatInput.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,150)+'px';});chatInput.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('chatgptForm').requestSubmit();}});const conversation=document.getElementById('chatgptConversation');conversation.scrollTop=conversation.scrollHeight;</script>''', history=history)
     return render_page(body, 'AI Assistant', 'AI SUPPORT')
 
 @app.route('/profile')
@@ -647,5 +744,170 @@ def admin_profile():
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename): return send_from_directory(UPLOAD_FOLDER,filename)
 
+
+# ---------------- Student Life: notices, notifications, lost & found, campus map ----------------
+def create_notification(account_type, account_id, title, message, link=''):
+    'Store a notification for a user or worker account.'
+    if not account_id:
+        return
+    con = get_db()
+    con.execute('INSERT INTO notifications(account_type,account_id,title,message,link) VALUES(?,?,?,?,?)',
+                (account_type, int(account_id), str(title)[:160], str(message)[:700], str(link)[:500]))
+    con.commit(); con.close()
+
+
+def account_identity():
+    if session.get('role') == 'worker':
+        return 'worker', session.get('worker_id')
+    return 'user', session.get('user_id')
+
+
+@app.route('/notices', methods=['GET', 'POST'])
+def notices_page():
+    if not session.get('user_id') and not session.get('worker_id'):
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        if not require('admin'):
+            flash('Only administrators can publish campus notices.', 'error')
+            return redirect(url_for('notices_page'))
+        title = request.form.get('title', '').strip()[:160]
+        body_text = request.form.get('body', '').strip()[:3000]
+        category = request.form.get('category', 'General').strip()[:60]
+        priority = request.form.get('priority', 'Normal')
+        if priority not in ('Normal', 'Important', 'Urgent'):
+            priority = 'Normal'
+        if not title or not body_text:
+            flash('Add a notice title and message.', 'error')
+            return redirect(url_for('notices_page'))
+        con = get_db()
+        con.execute('INSERT INTO notices(title,body,category,priority,created_by) VALUES(?,?,?,?,?)',
+                    (title, body_text, category or 'General', priority, session.get('user_id')))
+        users = con.execute("SELECT id FROM users WHERE role='student'").fetchall()
+        con.commit(); con.close()
+        for u in users:
+            create_notification('user', u['id'], 'New campus notice', title, url_for('notices_page'))
+        flash('Campus notice published and students notified.', 'success')
+        return redirect(url_for('notices_page'))
+    con = get_db()
+    notices = con.execute('SELECT * FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 100').fetchall()
+    con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">CAMPUS BULLETIN</div><h1>Smart campus notices</h1><p>Official announcements, events and urgent campus updates in one place.</p></div></div>
+    {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:22px"><h3 style="margin-top:0">Publish an announcement</h3><form method="POST" class="form-grid"><div><label>Notice title</label><input name="title" required maxlength="160" placeholder="Example: Library hours updated"></div><div><label>Category</label><select name="category"><option>General</option><option>Academic</option><option>Hostel</option><option>Mess</option><option>Events</option><option>Safety</option><option>Transport</option></select></div><div><label>Priority</label><select name="priority"><option>Normal</option><option>Important</option><option>Urgent</option></select></div><div class="full"><label>Message</label><textarea name="body" required maxlength="3000" placeholder="Write clear, verified information for students"></textarea></div><div><button class="btn btn-primary" type="submit">Publish notice →</button></div></form></div>{% endif %}
+    <div class="admin-list">{% for n in notices %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{n['category']}} · {{n['created_at']}}</div><div class="admin-title">{{n['title']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else ('progress' if n['priority']=='Important' else 'submitted')}}">{{n['priority']}}</span></div><p class="admin-desc" style="white-space:pre-wrap">{{n['body']}}</p></article>{% else %}<div class="empty">No notices have been published yet.</div>{% endfor %}</div>''', notices=notices)
+    return render_page(body, 'Campus Notices', 'CAMPUS BULLETIN')
+
+
+@app.route('/notifications', methods=['GET', 'POST'])
+def notifications_page():
+    if not session.get('user_id') and not session.get('worker_id'):
+        return redirect(url_for('login'))
+    kind, ident = account_identity()
+    con = get_db()
+    if request.method == 'POST' and request.form.get('action') == 'read_all':
+        con.execute('UPDATE notifications SET is_read=1 WHERE account_type=? AND account_id=?', (kind, ident))
+        con.commit()
+    items = con.execute('SELECT * FROM notifications WHERE account_type=? AND account_id=? ORDER BY created_at DESC LIMIT 100', (kind, ident)).fetchall()
+    con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">YOUR UPDATES</div><h1>Notifications</h1><p>Complaint progress, new notices and important account updates.</p></div><form method="POST"><input type="hidden" name="action" value="read_all"><button class="btn btn-light" type="submit">Mark all read</button></form></div><div class="admin-list">{% for n in items %}<article class="admin-card" style="border-left:4px solid {{'#A51F2B' if not n['is_read'] else '#ded4ca'}}"><div class="admin-top"><div><div class="admin-title">{{n['title']}}</div><p class="admin-desc">{{n['message']}}</p><div class="admin-meta">{{n['created_at']}}</div></div>{% if not n['is_read'] %}<span class="chip emergency">NEW</span>{% endif %}</div>{% if n['link'] %}<a class="btn btn-light" style="margin-top:12px" href="{{n['link']}}">Open update →</a>{% endif %}</article>{% else %}<div class="empty">You're all caught up. New updates will appear here.</div>{% endfor %}</div>''', items=items)
+    if request.method == 'POST':
+        flash('Notifications marked as read.', 'success')
+    return render_page(body, 'Notifications', 'YOUR UPDATES')
+
+
+@app.route('/lost-found', methods=['GET', 'POST'])
+def lost_found_page():
+    if not session.get('user_id') and not session.get('worker_id'):
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        if not require('student'):
+            flash('Only student accounts can post a lost or found item.', 'error')
+            return redirect(url_for('lost_found_page'))
+        action = request.form.get('action', 'create')
+        con = get_db()
+        if action == 'claim':
+            item_id = request.form.get('item_id', '')
+            item = con.execute("SELECT * FROM lost_found WHERE id=? AND status='Open'", (item_id,)).fetchone() if item_id.isdigit() else None
+            if item and item['user_id'] != session.get('user_id'):
+                owner_id = item['user_id']; item_title = item['title']
+                con.close()
+                create_notification('user', owner_id, 'Lost & Found claim request', f"{session.get('name','A student')} is asking about your listing: {item_title}.", url_for('lost_found_page'))
+                flash('Claim request sent to the person who posted this item. Their contact details remain private.', 'success')
+            else:
+                flash('That item is no longer available or belongs to your account.', 'error')
+            con.close()
+            return redirect(url_for('lost_found_page'))
+        item_type = request.form.get('item_type', 'Lost')
+        title = request.form.get('title', '').strip()[:140]
+        desc = request.form.get('description', '').strip()[:2000]
+        location = request.form.get('location', '').strip()[:200]
+        item_date = request.form.get('item_date', '').strip()[:20]
+        if item_type not in ('Lost', 'Found') or not title or not desc or not location:
+            con.close(); flash('Complete the item type, title, description and location.', 'error')
+            return redirect(url_for('lost_found_page'))
+        con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date) VALUES(?,?,?,?,?,?)', (session['user_id'], item_type, title, desc, location, item_date))
+        con.commit(); con.close()
+        flash('Your listing has been posted. Please avoid sharing sensitive personal details.', 'success')
+        return redirect(url_for('lost_found_page'))
+    query = request.args.get('q', '').strip()[:100]
+    con = get_db()
+    sql = "SELECT lf.*,u.name poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id WHERE lf.status='Open'"
+    params = []
+    if query:
+        sql += ' AND (lf.title LIKE ? OR lf.description LIKE ? OR lf.location LIKE ?)'
+        params += [f'%{query}%'] * 3
+    sql += ' ORDER BY lf.created_at DESC LIMIT 100'
+    items = con.execute(sql, params).fetchall(); con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">COMMUNITY CARE</div><h1>Lost & Found</h1><p>Help campus items find their way back. Keep sensitive information private.</p></div></div>
+    <div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Post a lost or found item</h3><form method="POST" class="form-grid"><div><label>Listing type</label><select name="item_type"><option>Lost</option><option>Found</option></select></div><div><label>Item name</label><input name="title" required maxlength="140" placeholder="Black water bottle / notebook"></div><div><label>Last seen / found location</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen"></div><div><label>Date (optional)</label><input type="date" name="item_date"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000" placeholder="Describe the item. Do not include ID numbers or sensitive details."></textarea></div><div><button class="btn btn-primary" type="submit">Post listing →</button></div></form></div>
+    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search item, description or location"><button class="btn btn-light">Search</button></form><div class="admin-list">{% for item in items %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{item['item_type']}} · {{item['location']}} · {{item['created_at']}}</div><div class="admin-title">{{item['title']}}</div></div><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span></div><p class="admin-desc">{{item['description']}}</p><div class="admin-meta">Posted by {{item['poster_name']}}</div>{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') %}<form method="POST" style="margin-top:12px"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-light" type="submit">I'm interested / Claim →</button></form>{% endif %}{% if session.get('role')=='admin' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" style="margin-top:12px"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}</article>{% else %}<div class="empty">No open listings match your search.</div>{% endfor %}</div>''', items=items, query=query)
+    return render_page(body, 'Lost & Found', 'COMMUNITY CARE')
+
+
+@app.route('/lost-found/<int:item_id>/close', methods=['POST'])
+def lost_found_close(item_id):
+    if not require('admin'):
+        return redirect(url_for('login'))
+    con = get_db(); con.execute("UPDATE lost_found SET status='Closed' WHERE id=?", (item_id,)); con.commit(); con.close()
+    flash('Listing marked as resolved.', 'success')
+    return redirect(url_for('lost_found_page'))
+
+
+@app.route('/campus-map', methods=['GET', 'POST'])
+def campus_map():
+    if not session.get('user_id') and not session.get('worker_id'):
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        if not require('admin'):
+            flash('Only administrators can add campus locations.', 'error')
+            return redirect(url_for('campus_map'))
+        name = request.form.get('name', '').strip()[:140]
+        category = request.form.get('category', 'General').strip()[:60]
+        building = request.form.get('building', '').strip()[:140]
+        description = request.form.get('description', '').strip()[:1000]
+        hours = request.form.get('hours', '').strip()[:100]
+        phone = re.sub(r'[^0-9+ -]', '', request.form.get('phone', ''))[:30]
+        map_url = request.form.get('map_url', '').strip()[:500]
+        if map_url and not (map_url.startswith('https://') or map_url.startswith('http://')):
+            flash('Map links must start with http:// or https://.', 'error')
+            return redirect(url_for('campus_map'))
+        if not name:
+            flash('Enter a location name.', 'error')
+            return redirect(url_for('campus_map'))
+        con = get_db(); con.execute('INSERT INTO campus_locations(name,category,building,description,hours,phone,map_url) VALUES(?,?,?,?,?,?,?)', (name, category or 'General', building, description, hours, phone, map_url)); con.commit(); con.close()
+        flash('Campus location added.', 'success')
+        return redirect(url_for('campus_map'))
+    query = request.args.get('q', '').strip()[:100]
+    con = get_db(); sql = 'SELECT * FROM campus_locations WHERE active=1'; params = []
+    if query:
+        sql += ' AND (name LIKE ? OR category LIKE ? OR building LIKE ? OR description LIKE ?)'; params += [f'%{query}%'] * 4
+    sql += ' ORDER BY category,name'; locations = con.execute(sql, params).fetchall(); con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">FIND YOUR WAY</div><h1>Campus map & services</h1><p>Search campus buildings and support services. Administrators can add verified location details and map links.</p></div></div>
+    {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Add a campus location</h3><form method="POST" class="form-grid"><div><label>Place name</label><input name="name" required placeholder="Central Library"></div><div><label>Category</label><select name="category"><option>Academic</option><option>Library</option><option>Hostel</option><option>Food & Mess</option><option>Medical</option><option>Security</option><option>Administration</option><option>Sports</option><option>Transport</option><option>Other</option></select></div><div><label>Building / block</label><input name="building" placeholder="Block A"></div><div><label>Opening hours</label><input name="hours" placeholder="9 AM – 6 PM"></div><div><label>Contact phone (optional)</label><input name="phone"></div><div><label>Map link (optional)</label><input name="map_url" type="url" placeholder="https://maps.google.com/…"></div><div class="full"><label>Description</label><textarea name="description" placeholder="Floor, landmark or service details"></textarea></div><div><button class="btn btn-primary" type="submit">Add location →</button></div></form></div>{% endif %}
+    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search library, hostel, medical centre, block…"><button class="btn btn-light">Search</button></form><div class="contact-grid">{% for loc in locations %}<article class="contact-card"><div class="tile-icon">⌖</div><span class="chip submitted">{{loc['category']}}</span><h3 style="margin-top:12px">{{loc['name']}}</h3><p class="muted">{{loc['building']}}</p><p class="muted">{{loc['description']}}</p>{% if loc['hours'] %}<p class="muted">Hours: {{loc['hours']}}</p>{% endif %}{% if loc['phone'] %}<a class="phone" href="tel:{{loc['phone']}}">☎ {{loc['phone']}}</a>{% endif %}{% if loc['map_url'] %}<p><a class="btn btn-light" target="_blank" rel="noopener noreferrer" href="{{loc['map_url']}}">Open map ↗</a></p>{% endif %}</article>{% else %}<div class="empty">No locations have been added yet. Ask an administrator to add verified campus locations.</div>{% endfor %}</div>''', locations=locations, query=query)
+    return render_page(body, 'Campus Map', 'FIND YOUR WAY')
+
+
 initialize_database()
+if os.environ.get("VERCEL") and not DATABASE_URL:
+    logging.warning("DATABASE_URL is not configured: SQLite data in /tmp is temporary and may disappear across Vercel instances. Configure a managed PostgreSQL database for persistent records.")
 if __name__=='__main__': app.run(debug=False,host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
