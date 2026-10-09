@@ -1,6 +1,6 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify
 import sqlite3, os, uuid, re, json, logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -18,6 +18,7 @@ DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
 DATABASE = os.path.join("/tmp", "campuscare.db") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "campuscare.db")
 UPLOAD_FOLDER = os.path.join("/tmp", "campuscare_uploads") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6 MB total request limit
 
 CATEGORIES = ["Hostel","Classroom","Laboratory","Washroom","Electricity","Water","Wi-Fi","Food/Mess","Cleaning","Security","Other"]
 PRIORITIES = ["Low","Medium","High","Emergency"]
@@ -174,6 +175,7 @@ def initialize_database():
         description TEXT NOT NULL,
         location TEXT NOT NULL,
         item_date TEXT DEFAULT '',
+        image_path TEXT DEFAULT '',
         status TEXT NOT NULL DEFAULT 'Open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -214,6 +216,9 @@ def initialize_database():
     existing_c = {r[1] for r in con.execute("PRAGMA table_info(complaints)").fetchall()}
     if "assigned_worker_id" not in existing_c:
         con.execute("ALTER TABLE complaints ADD COLUMN assigned_worker_id INTEGER DEFAULT NULL")
+    existing_lf = {r[1] for r in con.execute("PRAGMA table_info(lost_found)").fetchall()}
+    if "image_path" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN image_path TEXT DEFAULT ''")
     # Admin bootstrap is controlled through Vercel environment variables.
     # To reset an EXISTING admin once, set ADMIN_RESET_EXISTING_PASSWORD=true,
     # deploy, then immediately change that flag back to false and redeploy.
@@ -873,18 +878,31 @@ def lost_found_page():
                 create_notification('user', owner_id, 'Lost & Found claim request', f"{session.get('name','A student')} is asking about your listing: {item_title}.", url_for('lost_found_page'))
                 flash('Claim request sent to the person who posted this item. Their contact details remain private.', 'success')
             else:
+                con.close()
                 flash('That item is no longer available or belongs to your account.', 'error')
-            con.close()
             return redirect(url_for('lost_found_page'))
         item_type = request.form.get('item_type', 'Lost')
         title = request.form.get('title', '').strip()[:140]
         desc = request.form.get('description', '').strip()[:2000]
         location = request.form.get('location', '').strip()[:200]
         item_date = request.form.get('item_date', '').strip()[:20]
+        image_path = ''
+        photo = request.files.get('item_photo')
         if item_type not in ('Lost', 'Found') or not title or not desc or not location:
             con.close(); flash('Complete the item type, title, description and location.', 'error')
             return redirect(url_for('lost_found_page'))
-        con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date) VALUES(?,?,?,?,?,?)', (session['user_id'], item_type, title, desc, location, item_date))
+        if photo and photo.filename:
+            if not allowed_file(photo.filename):
+                con.close(); flash('Photo must be PNG, JPG, JPEG, GIF or WEBP.', 'error')
+                return redirect(url_for('lost_found_page'))
+            safe_name = secure_filename(photo.filename)
+            image_path = uuid.uuid4().hex + '_' + safe_name
+            try:
+                photo.save(os.path.join(UPLOAD_FOLDER, image_path))
+            except OSError:
+                con.close(); flash('Could not save the photo. Please try again.', 'error')
+                return redirect(url_for('lost_found_page'))
+        con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date,image_path) VALUES(?,?,?,?,?,?,?)', (session['user_id'], item_type, title, desc, location, item_date, image_path))
         con.commit(); con.close()
         flash('Your listing has been posted. Please avoid sharing sensitive personal details.', 'success')
         return redirect(url_for('lost_found_page'))
@@ -897,9 +915,9 @@ def lost_found_page():
         params += [f'%{query}%'] * 3
     sql += ' ORDER BY lf.created_at DESC LIMIT 100'
     items = con.execute(sql, params).fetchall(); con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">COMMUNITY CARE</div><h1>Lost & Found</h1><p>Help campus items find their way back. Keep sensitive information private.</p></div></div>
-    <div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Post a lost or found item</h3><form method="POST" class="form-grid"><div><label>Listing type</label><select name="item_type"><option>Lost</option><option>Found</option></select></div><div><label>Item name</label><input name="title" required maxlength="140" placeholder="Black water bottle / notebook"></div><div><label>Last seen / found location</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen"></div><div><label>Date (optional)</label><input type="date" name="item_date"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000" placeholder="Describe the item. Do not include ID numbers or sensitive details."></textarea></div><div><button class="btn btn-primary" type="submit">Post listing →</button></div></form></div>
-    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search item, description or location"><button class="btn btn-light">Search</button></form><div class="admin-list">{% for item in items %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{item['item_type']}} · {{item['location']}} · {{item['created_at']}}</div><div class="admin-title">{{item['title']}}</div></div><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span></div><p class="admin-desc">{{item['description']}}</p><div class="admin-meta">Posted by {{item['poster_name']}}</div>{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') %}<form method="POST" style="margin-top:12px"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-light" type="submit">I'm interested / Claim →</button></form>{% endif %}{% if session.get('role')=='admin' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" style="margin-top:12px"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}</article>{% else %}<div class="empty">No open listings match your search.</div>{% endfor %}</div>''', items=items, query=query)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">COMMUNITY CARE</div><h1>Lost & Found</h1><p>Post a photo with the item details to help its owner identify it. Keep personal information private.</p></div></div>
+    {% if session.get('role')=='student' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Post a lost or found item</h3><form method="POST" enctype="multipart/form-data" class="form-grid"><div><label>Listing type</label><select name="item_type"><option>Lost</option><option>Found</option></select></div><div><label>Item name</label><input name="title" required maxlength="140" placeholder="Black water bottle / notebook"></div><div><label>Last seen / found location</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen"></div><div><label>Date (optional)</label><input type="date" name="item_date"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000" placeholder="Describe the item. Do not include ID numbers or sensitive details."></textarea></div><div class="full"><label>Attach item photo (optional, max 6 MB)</label><input type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><p class="muted">Use a clear photo of the item. Avoid showing student IDs, bank cards, faces, or other private information.</p></div><div><button class="btn btn-primary" type="submit">＋ Post listing</button></div></form></div>{% endif %}
+    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search item, description or location"><button class="btn btn-light">Search</button></form><div class="admin-list">{% for item in items %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{item['item_type']}} · {{item['location']}} · {{item['created_at']}}</div><div class="admin-title">{{item['title']}}</div></div><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span></div>{% if item['image_path'] %}<img src="{{url_for('uploaded_file',filename=item['image_path'])}}" alt="Photo of {{item['title']}}" loading="lazy" style="display:block;width:min(100%,420px);max-height:300px;object-fit:contain;background:#f7f0e8;border:1px solid #e7dcd2;border-radius:15px;margin-top:14px">{% endif %}<p class="admin-desc">{{item['description']}}</p>{% if item['item_date'] %}<div class="admin-meta">Item date: {{item['item_date']}}</div>{% endif %}<div class="admin-meta">Posted by {{item['poster_name']}}</div>{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') %}<form method="POST" style="margin-top:12px"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-light" type="submit">I'm interested / Claim →</button></form>{% endif %}{% if session.get('role')=='admin' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" style="margin-top:12px"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}</article>{% else %}<div class="empty">No open listings match your search.</div>{% endfor %}</div>''', items=items, query=query)
     return render_page(body, 'Lost & Found', 'COMMUNITY CARE')
 
 
@@ -912,6 +930,21 @@ def lost_found_close(item_id):
     return redirect(url_for('lost_found_page'))
 
 
+def clean_map_form():
+    name = request.form.get('name', '').strip()[:140]
+    category = request.form.get('category', 'General').strip()[:60]
+    building = request.form.get('building', '').strip()[:140]
+    description = request.form.get('description', '').strip()[:1000]
+    hours = request.form.get('hours', '').strip()[:100]
+    phone = re.sub(r'[^0-9+ -]', '', request.form.get('phone', ''))[:30]
+    map_url = request.form.get('map_url', '').strip()[:500]
+    if map_url and not (map_url.startswith('https://') or map_url.startswith('http://')):
+        raise ValueError('Map links must start with http:// or https://.')
+    if not name:
+        raise ValueError('Enter a location name.')
+    return (name, category or 'General', building, description, hours, phone, map_url)
+
+
 @app.route('/campus-map', methods=['GET', 'POST'])
 def campus_map():
     if not session.get('user_id') and not session.get('worker_id'):
@@ -920,20 +953,14 @@ def campus_map():
         if not require('admin'):
             flash('Only administrators can add campus locations.', 'error')
             return redirect(url_for('campus_map'))
-        name = request.form.get('name', '').strip()[:140]
-        category = request.form.get('category', 'General').strip()[:60]
-        building = request.form.get('building', '').strip()[:140]
-        description = request.form.get('description', '').strip()[:1000]
-        hours = request.form.get('hours', '').strip()[:100]
-        phone = re.sub(r'[^0-9+ -]', '', request.form.get('phone', ''))[:30]
-        map_url = request.form.get('map_url', '').strip()[:500]
-        if map_url and not (map_url.startswith('https://') or map_url.startswith('http://')):
-            flash('Map links must start with http:// or https://.', 'error')
+        try:
+            values = clean_map_form()
+        except ValueError as exc:
+            flash(str(exc), 'error')
             return redirect(url_for('campus_map'))
-        if not name:
-            flash('Enter a location name.', 'error')
-            return redirect(url_for('campus_map'))
-        con = get_db(); con.execute('INSERT INTO campus_locations(name,category,building,description,hours,phone,map_url) VALUES(?,?,?,?,?,?,?)', (name, category or 'General', building, description, hours, phone, map_url)); con.commit(); con.close()
+        con = get_db()
+        con.execute('INSERT INTO campus_locations(name,category,building,description,hours,phone,map_url) VALUES(?,?,?,?,?,?,?)', values)
+        con.commit(); con.close()
         flash('Campus location added.', 'success')
         return redirect(url_for('campus_map'))
     query = request.args.get('q', '').strip()[:100]
@@ -941,10 +968,37 @@ def campus_map():
     if query:
         sql += ' AND (name LIKE ? OR category LIKE ? OR building LIKE ? OR description LIKE ?)'; params += [f'%{query}%'] * 4
     sql += ' ORDER BY category,name'; locations = con.execute(sql, params).fetchall(); con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">FIND YOUR WAY</div><h1>Campus map & services</h1><p>Search campus buildings and support services. Administrators can add verified location details and map links.</p></div></div>
-    {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Add a campus location</h3><form method="POST" class="form-grid"><div><label>Place name</label><input name="name" required placeholder="Central Library"></div><div><label>Category</label><select name="category"><option>Academic</option><option>Library</option><option>Hostel</option><option>Food & Mess</option><option>Medical</option><option>Security</option><option>Administration</option><option>Sports</option><option>Transport</option><option>Other</option></select></div><div><label>Building / block</label><input name="building" placeholder="Block A"></div><div><label>Opening hours</label><input name="hours" placeholder="9 AM – 6 PM"></div><div><label>Contact phone (optional)</label><input name="phone"></div><div><label>Map link (optional)</label><input name="map_url" type="url" placeholder="https://maps.google.com/…"></div><div class="full"><label>Description</label><textarea name="description" placeholder="Floor, landmark or service details"></textarea></div><div><button class="btn btn-primary" type="submit">Add location →</button></div></form></div>{% endif %}
-    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search library, hostel, medical centre, block…"><button class="btn btn-light">Search</button></form><div class="contact-grid">{% for loc in locations %}<article class="contact-card"><div class="tile-icon">⌖</div><span class="chip submitted">{{loc['category']}}</span><h3 style="margin-top:12px">{{loc['name']}}</h3><p class="muted">{{loc['building']}}</p><p class="muted">{{loc['description']}}</p>{% if loc['hours'] %}<p class="muted">Hours: {{loc['hours']}}</p>{% endif %}{% if loc['phone'] %}<a class="phone" href="tel:{{loc['phone']}}">☎ {{loc['phone']}}</a>{% endif %}{% if loc['map_url'] %}<p><a class="btn btn-light" target="_blank" rel="noopener noreferrer" href="{{loc['map_url']}}">Open map ↗</a></p>{% endif %}</article>{% else %}<div class="empty">No locations have been added yet. Ask an administrator to add verified campus locations.</div>{% endfor %}</div>''', locations=locations, query=query)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">FIND YOUR WAY</div><h1>Campus map & services</h1><p>Find campus buildings and support services. Administrators can add, edit and remove outdated locations.</p></div><span class="chip submitted">{{locations|length}} locations</span></div>
+    <div class="help-hero"><div class="hero-kicker">CAMPUS NAVIGATION</div><h2>Know where to go.</h2><p>Search by building, service or category. Open a saved map link, or use Google Maps search for the location name. Only add verified campus details.</p></div>
+    {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">＋ Add a campus location</h3><form method="POST" class="form-grid"><div><label>Place name *</label><input name="name" required placeholder="Central Library"></div><div><label>Category</label><select name="category"><option>Academic</option><option>Library</option><option>Hostel</option><option>Food & Mess</option><option>Medical</option><option>Security</option><option>Administration</option><option>Sports</option><option>Transport</option><option>Other</option></select></div><div><label>Building / block</label><input name="building" placeholder="Block A"></div><div><label>Opening hours</label><input name="hours" placeholder="9 AM – 6 PM"></div><div><label>Contact phone (optional)</label><input name="phone" placeholder="Verified campus number"></div><div><label>Google Maps link (optional)</label><input name="map_url" type="url" placeholder="https://maps.google.com/…"></div><div class="full"><label>Description / directions</label><textarea name="description" placeholder="Floor, landmark or service details"></textarea></div><div><button class="btn btn-primary" type="submit">Save location →</button></div></form></div>{% endif %}
+    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search library, hostel, medical centre, block…"><button class="btn btn-light">Search</button></form><div class="contact-grid">{% for loc in locations %}<article class="contact-card"><div class="tile-icon">⌖</div><span class="chip submitted">{{loc['category']}}</span><h3 style="margin-top:12px">{{loc['name']}}</h3>{% if loc['building'] %}<p class="muted"><b>Building:</b> {{loc['building']}}</p>{% endif %}<p class="muted">{{loc['description']}}</p>{% if loc['hours'] %}<p class="muted">Hours: {{loc['hours']}}</p>{% endif %}{% if loc['phone'] %}<a class="phone" href="tel:{{loc['phone']}}">☎ {{loc['phone']}}</a>{% endif %}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><a class="btn btn-primary" target="_blank" rel="noopener noreferrer" href="{{loc['map_url'] or ('https://www.google.com/maps/search/?api=1&query=' ~ (loc['name'] ~ ' ' ~ loc['building'])|urlencode)}}">Open map / directions ↗</a>{% if session.get('role')=='admin' %}<a class="btn btn-light" href="#edit-location-{{loc['id']}}">Edit details</a>{% endif %}</div>
+    {% if session.get('role')=='admin' %}<details id="edit-location-{{loc['id']}}" style="margin-top:14px;border-top:1px solid #e7dcd2;padding-top:14px"><summary style="font-size:12px;font-weight:850;cursor:pointer">Update this location</summary><form method="POST" action="{{url_for('campus_map_update',location_id=loc['id'])}}" class="form-grid" style="margin-top:12px"><div><label>Place name</label><input name="name" required value="{{loc['name']}}"></div><div><label>Category</label><input name="category" required value="{{loc['category']}}"></div><div><label>Building / block</label><input name="building" value="{{loc['building']}}"></div><div><label>Opening hours</label><input name="hours" value="{{loc['hours']}}"></div><div><label>Phone</label><input name="phone" value="{{loc['phone']}}"></div><div><label>Map link</label><input name="map_url" type="url" value="{{loc['map_url']}}" placeholder="https://…"></div><div class="full"><label>Description / directions</label><textarea name="description">{{loc['description']}}</textarea></div><div><button class="btn btn-primary" type="submit">Save changes</button></div></form><form method="POST" action="{{url_for('campus_map_remove',location_id=loc['id'])}}" onsubmit="return confirm('Remove this location from the campus map?')" style="margin-top:10px"><button class="btn btn-light" type="submit">Remove location</button></form></details>{% endif %}</article>{% else %}<div class="empty">No locations have been added yet. Ask an administrator to add verified campus locations.</div>{% endfor %}</div>''', locations=locations, query=query)
     return render_page(body, 'Campus Map', 'FIND YOUR WAY')
+
+
+@app.route('/campus-map/<int:location_id>/update', methods=['POST'])
+def campus_map_update(location_id):
+    if not require('admin'):
+        return redirect(url_for('login'))
+    try:
+        values = clean_map_form()
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('campus_map'))
+    con = get_db()
+    cur = con.execute('UPDATE campus_locations SET name=?,category=?,building=?,description=?,hours=?,phone=?,map_url=? WHERE id=? AND active=1', values + (location_id,))
+    con.commit(); con.close()
+    flash('Campus location updated.' if getattr(cur, 'rowcount', 1) else 'Location not found or already removed.', 'success')
+    return redirect(url_for('campus_map'))
+
+
+@app.route('/campus-map/<int:location_id>/remove', methods=['POST'])
+def campus_map_remove(location_id):
+    if not require('admin'):
+        return redirect(url_for('login'))
+    con = get_db(); con.execute('UPDATE campus_locations SET active=0 WHERE id=?', (location_id,)); con.commit(); con.close()
+    flash('Location removed from the active campus map.', 'success')
+    return redirect(url_for('campus_map'))
 
 
 initialize_database()
