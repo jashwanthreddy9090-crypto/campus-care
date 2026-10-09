@@ -214,20 +214,24 @@ def initialize_database():
     existing_c = {r[1] for r in con.execute("PRAGMA table_info(complaints)").fetchall()}
     if "assigned_worker_id" not in existing_c:
         con.execute("ALTER TABLE complaints ADD COLUMN assigned_worker_id INTEGER DEFAULT NULL")
-    # Admin bootstrap: environment variables override these demo defaults.
-    # Change the default password immediately before using this app publicly.
+    # Admin bootstrap is controlled through Vercel environment variables.
+    # To reset an EXISTING admin once, set ADMIN_RESET_EXISTING_PASSWORD=true,
+    # deploy, then immediately change that flag back to false and redeploy.
     admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
     admin_name = os.environ.get("ADMIN_NAME", "Campus Administrator").strip() or "Campus Administrator"
     admin_mobile = os.environ.get("ADMIN_MOBILE", "")
+    reset_existing_admin = os.environ.get("ADMIN_RESET_EXISTING_PASSWORD", "").strip().lower() in {"1", "true", "yes", "on"}
     if valid_campus_email(admin_email) and admin_password:
-        existing_admin = con.execute("SELECT id FROM users WHERE email=?", (admin_email,)).fetchone()
+        existing_admin = con.execute("SELECT id, role FROM users WHERE email=?", (admin_email,)).fetchone()
+        configured_hash = generate_password_hash(admin_password)
         if not existing_admin:
-            password_hash = generate_password_hash(admin_password)
             con.execute(
                 "INSERT INTO users(name,email,password,role,mobile,department) VALUES(?,?,?,?,?,?)",
-                (admin_name, admin_email, generate_password_hash(admin_password), "admin", admin_mobile, "Campus Administration"),
+                (admin_name, admin_email, configured_hash, "admin", admin_mobile, "Campus Administration"),
             )
+        elif existing_admin["role"] == "admin" and reset_existing_admin:
+            con.execute("UPDATE users SET password=? WHERE id=?", (configured_hash, existing_admin["id"]))
     for name, dept, mobile in DEMO_WORKERS:
         if not con.execute("SELECT 1 FROM workers WHERE name=? AND department=?", (name,dept)).fetchone():
             con.execute("INSERT INTO workers(name,department,mobile) VALUES(?,?,?)", (name,dept,mobile))
@@ -348,11 +352,47 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 @media(max-width:1050px){.help-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.help-quicklinks{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.help-grid,.help-quicklinks{grid-template-columns:1fr}.help-hero{padding:23px}.help-hero:after{right:-5px;font-size:130px}.profile-hero{padding:21px;align-items:flex-start;gap:14px}.profile-hero .profile-avatar{width:64px;height:64px;flex-basis:64px;border-radius:20px;font-size:24px}.profile-details{grid-template-columns:1fr}.profile-info-card{padding:18px}}
 
+
+/* Accessible show/hide password control */
+.password-wrap{position:relative;width:100%;min-width:0}
+.password-wrap>input[type=password],.password-wrap>input[type=text]{width:100%;padding-right:76px}
+.password-toggle{position:absolute;right:9px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#941b2b;font-size:12px;font-weight:850;padding:7px 5px;border-radius:7px;cursor:pointer;z-index:2}
+.password-toggle:hover{background:#f8e8e5}
+.password-toggle:focus-visible{outline:2px solid #941b2b;outline-offset:2px}
 </style></head><body>
 {% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><div class="logo logo-mark"><span class="logo-c">C</span><span class="logo-degree">360°</span></div><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
 {% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">👷</span>Workers</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a><a href="{{url_for('admin_password_resets')}}" class="{{'active' if request.endpoint=='admin_password_resets' else ''}}"><span class="nav-icon">🔐</span>Password Requests</a>
 {% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
+<script>
+(function(){
+  function addPasswordToggles(){
+    document.querySelectorAll('input[type="password"]:not([data-toggle-ready])').forEach(function(input){
+      input.setAttribute('data-toggle-ready','true');
+      var wrap=document.createElement('div');
+      wrap.className='password-wrap';
+      input.parentNode.insertBefore(wrap,input);
+      wrap.appendChild(input);
+      var button=document.createElement('button');
+      button.type='button';
+      button.className='password-toggle';
+      button.textContent='Show';
+      button.setAttribute('aria-label','Show password');
+      button.setAttribute('aria-pressed','false');
+      button.addEventListener('click',function(){
+        var showing=input.type==='password';
+        input.type=showing?'text':'password';
+        button.textContent=showing?'Hide':'Show';
+        button.setAttribute('aria-label',showing?'Hide password':'Show password');
+        button.setAttribute('aria-pressed',showing?'true':'false');
+        input.focus();
+      });
+      wrap.appendChild(button);
+    });
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',addPasswordToggles);}else{addPasswordToggles();}
+})();
+</script>
 </body></html>'''
 
 def render_page(body,title="Campus Care",eyebrow="CAMPUS CARE"):
