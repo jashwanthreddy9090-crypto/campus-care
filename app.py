@@ -1,5 +1,5 @@
-from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify
-import sqlite3, os, uuid, re, json, logging
+from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
+import sqlite3, os, uuid, re, json, logging, base64
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -175,6 +175,7 @@ def initialize_database():
         description TEXT NOT NULL,
         location TEXT NOT NULL,
         item_date TEXT DEFAULT '',
+        category TEXT DEFAULT 'Other',
         image_path TEXT DEFAULT '',
         status TEXT NOT NULL DEFAULT 'Open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -219,6 +220,12 @@ def initialize_database():
     existing_lf = {r[1] for r in con.execute("PRAGMA table_info(lost_found)").fetchall()}
     if "image_path" not in existing_lf:
         con.execute("ALTER TABLE lost_found ADD COLUMN image_path TEXT DEFAULT ''")
+    if "category" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN category TEXT DEFAULT 'Other'")
+    if "image_data" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN image_data TEXT DEFAULT ''")
+    if "image_mime" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN image_mime TEXT DEFAULT ''")
     # Admin bootstrap is controlled through Vercel environment variables.
     # To reset an EXISTING admin once, set ADMIN_RESET_EXISTING_PASSWORD=true,
     # deploy, then immediately change that flag back to false and redeploy.
@@ -859,76 +866,229 @@ def notifications_page():
     return render_page(body, 'Notifications', 'YOUR UPDATES')
 
 
+LOST_FOUND_CATEGORIES = ["Electronics", "ID / Cards", "Books & Notes", "Keys", "Clothing", "Bags", "Jewellery", "Sports", "Other"]
+
+
+def save_lost_found_photo(photo):
+    """Validate a small image and return base64 data + trusted MIME type.
+
+    Storing Lost & Found photos in the database makes them survive Vercel's
+    ephemeral /tmp filesystem. Existing image_path files remain supported for
+    older listings.
+    """
+    if not photo or not photo.filename:
+        return "", ""
+    safe_name = secure_filename(photo.filename) or "item-photo"
+    ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+    mime_by_ext = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+    if ext not in mime_by_ext:
+        raise ValueError("Photo must be PNG, JPG, JPEG, GIF or WEBP.")
+    raw = photo.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        raise ValueError("Please choose an image smaller than 5 MB.")
+    if not raw:
+        raise ValueError("The selected image is empty. Please choose another photo.")
+    return base64.b64encode(raw).decode("ascii"), mime_by_ext[ext]
+
+
+def remove_lost_found_photo(filename):
+    if not filename:
+        return
+    # Only remove files with the generated Lost & Found prefix.
+    if not str(filename).startswith("lf_"):
+        return
+    try:
+        os.remove(os.path.join(UPLOAD_FOLDER, os.path.basename(filename)))
+    except OSError:
+        pass
+
+
 @app.route('/lost-found', methods=['GET', 'POST'])
 def lost_found_page():
     if not session.get('user_id') and not session.get('worker_id'):
         return redirect(url_for('login'))
+
     if request.method == 'POST':
         if not require('student'):
-            flash('Only student accounts can post a lost or found item.', 'error')
+            flash('Only student accounts can post or claim a lost/found item.', 'error')
             return redirect(url_for('lost_found_page'))
+
         action = request.form.get('action', 'create')
         con = get_db()
         if action == 'claim':
             item_id = request.form.get('item_id', '')
             item = con.execute("SELECT * FROM lost_found WHERE id=? AND status='Open'", (item_id,)).fetchone() if item_id.isdigit() else None
             if item and item['user_id'] != session.get('user_id'):
-                owner_id = item['user_id']; item_title = item['title']
+                owner_id, item_title = item['user_id'], item['title']
                 con.close()
-                create_notification('user', owner_id, 'Lost & Found claim request', f"{session.get('name','A student')} is asking about your listing: {item_title}.", url_for('lost_found_page'))
-                flash('Claim request sent to the person who posted this item. Their contact details remain private.', 'success')
+                create_notification('user', owner_id, 'Lost & Found claim request',
+                                    f"{session.get('name','A student')} is asking about your listing: {item_title}.",
+                                    url_for('lost_found_page', mine='1'))
+                flash('Claim request sent to the poster. Their contact details remain private.', 'success')
             else:
                 con.close()
                 flash('That item is no longer available or belongs to your account.', 'error')
             return redirect(url_for('lost_found_page'))
-        item_type = request.form.get('item_type', 'Lost')
-        title = request.form.get('title', '').strip()[:140]
-        desc = request.form.get('description', '').strip()[:2000]
-        location = request.form.get('location', '').strip()[:200]
-        item_date = request.form.get('item_date', '').strip()[:20]
-        image_path = ''
-        photo = request.files.get('item_photo')
-        if item_type not in ('Lost', 'Found') or not title or not desc or not location:
-            con.close(); flash('Complete the item type, title, description and location.', 'error')
-            return redirect(url_for('lost_found_page'))
-        if photo and photo.filename:
-            if not allowed_file(photo.filename):
-                con.close(); flash('Photo must be PNG, JPG, JPEG, GIF or WEBP.', 'error')
+
+        if action == 'create':
+            item_type = request.form.get('item_type', 'Lost')
+            category = request.form.get('category', 'Other')
+            title = request.form.get('title', '').strip()[:140]
+            desc = request.form.get('description', '').strip()[:1800]
+            hint = request.form.get('description_hint', '').strip()[:120]
+            if hint:
+                desc = (desc + ('\n\nIdentifying detail: ' if desc else 'Identifying detail: ') + hint)[:2000]
+            location = request.form.get('location', '').strip()[:200]
+            item_date = request.form.get('item_date', '').strip()[:20]
+            if item_type not in ('Lost', 'Found') or category not in LOST_FOUND_CATEGORIES or not title or not desc or not location:
+                con.close()
+                flash('Complete the item type, category, name, description and location.', 'error')
                 return redirect(url_for('lost_found_page'))
-            safe_name = secure_filename(photo.filename)
-            image_path = uuid.uuid4().hex + '_' + safe_name
             try:
-                photo.save(os.path.join(UPLOAD_FOLDER, image_path))
-            except OSError:
-                con.close(); flash('Could not save the photo. Please try again.', 'error')
+                image_data, image_mime = save_lost_found_photo(request.files.get('item_photo'))
+            except ValueError as exc:
+                con.close(); flash(str(exc), 'error')
                 return redirect(url_for('lost_found_page'))
-        con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date,image_path) VALUES(?,?,?,?,?,?,?)', (session['user_id'], item_type, title, desc, location, item_date, image_path))
-        con.commit(); con.close()
-        flash('Your listing has been posted. Please avoid sharing sensitive personal details.', 'success')
+            con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date,category,image_path,image_data,image_mime) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        (session['user_id'], item_type, title, desc, location, item_date, category, '', image_data, image_mime))
+            con.commit(); con.close()
+            flash('Your listing has been posted successfully.', 'success')
+            return redirect(url_for('lost_found_page', mine='1'))
+        con.close()
+        flash('That action is not available.', 'error')
         return redirect(url_for('lost_found_page'))
+
     query = request.args.get('q', '').strip()[:100]
+    item_type_filter = request.args.get('type', '').strip()
+    category_filter = request.args.get('category', '').strip()
+    mine = request.args.get('mine') == '1' and require('student')
     con = get_db()
-    sql = "SELECT lf.*,u.name poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id WHERE lf.status='Open'"
+    sql = "SELECT lf.*,u.name poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id WHERE 1=1"
     params = []
+    if mine:
+        sql += ' AND lf.user_id=?'
+        params.append(session['user_id'])
+    else:
+        sql += " AND lf.status='Open'"
     if query:
         sql += ' AND (lf.title LIKE ? OR lf.description LIKE ? OR lf.location LIKE ?)'
         params += [f'%{query}%'] * 3
-    sql += ' ORDER BY lf.created_at DESC LIMIT 100'
-    items = con.execute(sql, params).fetchall(); con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">COMMUNITY CARE</div><h1>Lost & Found</h1><p>Post a photo with the item details to help its owner identify it. Keep personal information private.</p></div></div>
-    {% if session.get('role')=='student' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">Post a lost or found item</h3><form method="POST" enctype="multipart/form-data" class="form-grid"><div><label>Listing type</label><select name="item_type"><option>Lost</option><option>Found</option></select></div><div><label>Item name</label><input name="title" required maxlength="140" placeholder="Black water bottle / notebook"></div><div><label>Last seen / found location</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen"></div><div><label>Date (optional)</label><input type="date" name="item_date"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000" placeholder="Describe the item. Do not include ID numbers or sensitive details."></textarea></div><div class="full"><label>Attach item photo (optional, max 6 MB)</label><input type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><p class="muted">Use a clear photo of the item. Avoid showing student IDs, bank cards, faces, or other private information.</p></div><div><button class="btn btn-primary" type="submit">＋ Post listing</button></div></form></div>{% endif %}
-    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search item, description or location"><button class="btn btn-light">Search</button></form><div class="admin-list">{% for item in items %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{item['item_type']}} · {{item['location']}} · {{item['created_at']}}</div><div class="admin-title">{{item['title']}}</div></div><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span></div>{% if item['image_path'] %}<img src="{{url_for('uploaded_file',filename=item['image_path'])}}" alt="Photo of {{item['title']}}" loading="lazy" style="display:block;width:min(100%,420px);max-height:300px;object-fit:contain;background:#f7f0e8;border:1px solid #e7dcd2;border-radius:15px;margin-top:14px">{% endif %}<p class="admin-desc">{{item['description']}}</p>{% if item['item_date'] %}<div class="admin-meta">Item date: {{item['item_date']}}</div>{% endif %}<div class="admin-meta">Posted by {{item['poster_name']}}</div>{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') %}<form method="POST" style="margin-top:12px"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-light" type="submit">I'm interested / Claim →</button></form>{% endif %}{% if session.get('role')=='admin' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" style="margin-top:12px"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}</article>{% else %}<div class="empty">No open listings match your search.</div>{% endfor %}</div>''', items=items, query=query)
+    if item_type_filter in ('Lost', 'Found'):
+        sql += ' AND lf.item_type=?'; params.append(item_type_filter)
+    if category_filter in LOST_FOUND_CATEGORIES:
+        sql += ' AND lf.category=?'; params.append(category_filter)
+    sql += ' ORDER BY CASE WHEN lf.status=\'Open\' THEN 0 ELSE 1 END, lf.created_at DESC LIMIT 100'
+    items = con.execute(sql, params).fetchall()
+    if require('student'):
+        mine_count = con.execute('SELECT COUNT(*) AS n FROM lost_found WHERE user_id=?', (session['user_id'],)).fetchone()['n']
+    else:
+        mine_count = 0
+    open_count = con.execute("SELECT COUNT(*) AS n FROM lost_found WHERE status='Open'").fetchone()['n']
+    con.close()
+    body = render_template_string(r'''<style>
+    .lf-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}.lf-stat{padding:17px;border:1px solid #e7dcd2;background:#fffdf9;border-radius:17px}.lf-stat strong{display:block;font-size:25px;color:#941b2b}.lf-stat span{font-size:11px;color:#756b66}.lf-filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;margin-bottom:16px}.lf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.lf-card{overflow:hidden;padding:0!important}.lf-photo{width:100%;height:220px;object-fit:cover;background:#f5eae0;display:block}.lf-no-photo{height:130px;display:grid;place-items:center;background:linear-gradient(135deg,#f8eee6,#f0dcd1);color:#9f1d2d;font-size:34px}.lf-card-body{padding:19px}.lf-badges{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}.lf-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}.lf-card-actions form{margin:0}.lf-upload-box{border:1.5px dashed #d7bdb0;border-radius:16px;padding:16px;background:#fffaf5}.lf-preview{display:none;max-width:240px;max-height:190px;object-fit:contain;border-radius:12px;margin-top:12px;border:1px solid #e7dcd2}.lf-switch{display:flex;gap:8px;align-items:center;margin-bottom:15px}.lf-switch a{padding:9px 13px;border:1px solid #e7dcd2;border-radius:11px;background:#fffdf9;font-size:12px;font-weight:800}.lf-switch a.active{background:#941b2b;color:white;border-color:#941b2b}
+    @media(max-width:760px){.lf-filters{grid-template-columns:1fr}.lf-grid{grid-template-columns:1fr}.lf-stats{grid-template-columns:1fr 1fr}.lf-stat:last-child{grid-column:1/-1}.lf-photo{height:200px}}
+    </style>
+    <div class="page-head"><div><div class="eyebrow">COMMUNITY CARE · STUDENT EXCHANGE</div><h1>Lost & Found</h1><p>Help campus members reunite with missing items. Add a clear photo, filter listings and privately request a claim.</p><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px"><span class="chip resolved">✓ Photo uploads</span><span class="chip submitted">⌕ Search & filters</span><span class="chip assigned">✎ Edit your listing</span><span class="chip progress">♢ Private claim requests</span><span class="chip closed">Persistent photo storage</span></div></div></div>
+    <div class="lf-stats"><div class="lf-stat"><strong>{{open_count}}</strong><span>Open listings on campus</span></div><div class="lf-stat"><strong>{{items|length}}</strong><span>Results in this view</span></div>{% if session.get('role')=='student' %}<div class="lf-stat"><strong>{{mine_count}}</strong><span>Your total listings</span></div>{% else %}<div class="lf-stat"><strong>Private</strong><span>Contact details protected</span></div>{% endif %}</div>
+    {% if session.get('role')=='student' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">＋ Report a lost or found item</h3><p class="muted">Include enough detail to identify the item, but leave out passwords, full ID numbers and other sensitive information.</p><form method="POST" enctype="multipart/form-data" class="form-grid" id="lf-create-form"><input type="hidden" name="action" value="create"><div><label>Listing type</label><select name="item_type" required><option value="Lost">I lost something</option><option value="Found">I found something</option></select></div><div><label>Category</label><select name="category" required>{% for c in categories_lf %}<option>{{c}}</option>{% endfor %}</select></div><div><label>Item name</label><input name="title" required maxlength="140" placeholder="Black bottle, notebook, keys…"></div><div><label>Location</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen…"></div><div><label>Date lost / found</label><input type="date" name="item_date" max="{{today}}"></div><div><label>Additional identifying detail</label><input name="description_hint" maxlength="120" placeholder="Colour, brand or distinguishing mark (optional)"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000" placeholder="Describe the item and where it was last seen…"></textarea></div><div class="full lf-upload-box"><label>Item photo (optional · PNG/JPG/GIF/WEBP · up to 5 MB)</label><input id="lf-photo-input" type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><img id="lf-photo-preview" class="lf-preview" alt="Selected item photo preview"><p class="muted" style="margin-bottom:0">A photo helps people recognise the item. Avoid uploading faces, ID cards or bank details.</p></div><div class="full"><button class="btn btn-primary" type="submit">Publish listing →</button></div></form></div>{% endif %}
+    <div class="lf-switch"><a href="{{url_for('lost_found_page')}}" class="{{'' if mine else 'active'}}">Browse open items</a>{% if session.get('role')=='student' %}<a href="{{url_for('lost_found_page',mine='1')}}" class="{{'active' if mine else ''}}">My listings</a>{% endif %}</div>
+    <form class="lf-filters" method="GET"><input name="q" value="{{query}}" placeholder="Search item, description or location"><select name="type"><option value="">Lost and found</option><option value="Lost" {{'selected' if type_filter=='Lost' else ''}}>Lost items</option><option value="Found" {{'selected' if type_filter=='Found' else ''}}>Found items</option></select><select name="category"><option value="">All categories</option>{% for c in categories_lf %}<option value="{{c}}" {{'selected' if category_filter==c else ''}}>{{c}}</option>{% endfor %}</select>{% if mine %}<input type="hidden" name="mine" value="1">{% endif %}<button class="btn btn-light" type="submit">Filter</button></form>
+    <div class="lf-grid">{% for item in items %}<article class="admin-card lf-card">{% if item['image_data'] or item['image_path'] %}<img class="lf-photo" src="{{url_for('lost_found_image',item_id=item['id'])}}" alt="Photo of {{item['title']}}" loading="lazy">{% else %}<div class="lf-no-photo">{% if item['category']=='Electronics' %}▣{% elif item['category']=='Books & Notes' %}▤{% elif item['category']=='Keys' %}⚿{% elif item['category']=='Bags' %}▱{% else %}⌕{% endif %}</div>{% endif %}<div class="lf-card-body"><div class="lf-badges"><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span><span class="chip submitted">{{item['category'] or 'Other'}}</span><span class="chip {{'closed' if item['status']!='Open' else 'progress'}}">{{item['status']}}</span></div><div class="admin-title">{{item['title']}}</div><div class="admin-meta">📍 {{item['location']}} · {{item['created_at']}}</div><p class="admin-desc" style="white-space:pre-wrap">{{item['description']}}</p>{% if item['item_date'] %}<div class="admin-meta">Date lost/found: {{item['item_date']}}</div>{% endif %}<div class="admin-meta" style="margin-top:8px">Posted by {{item['poster_name']}}</div><div class="lf-card-actions">{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') and item['status']=='Open' %}<form method="POST"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-primary" type="submit">Request to claim</button></form>{% endif %}{% if session.get('role')=='student' and item['user_id']==session.get('user_id') and item['status']=='Open' %}<a class="btn btn-light" href="{{url_for('lost_found_edit',item_id=item['id'])}}">Edit listing</a><form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" onsubmit="return confirm('Mark this item as resolved?')"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}{% if session.get('role')=='admin' and item['status']=='Open' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}"><button class="btn btn-light" type="submit">Close listing</button></form>{% endif %}</div></div></article>{% else %}<div class="empty" style="grid-column:1/-1">No listings match these filters. Try another search or publish a new listing.</div>{% endfor %}</div>
+    <script>
+    (function(){const input=document.getElementById('lf-photo-input');const preview=document.getElementById('lf-photo-preview');if(!input||!preview)return;input.addEventListener('change',function(){const f=input.files&&input.files[0];if(!f){preview.style.display='none';preview.removeAttribute('src');return;}if(f.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');input.value='';preview.style.display='none';return;}if(!['image/png','image/jpeg','image/gif','image/webp'].includes(f.type)){alert('Choose a PNG, JPG, GIF or WEBP image.');input.value='';preview.style.display='none';return;}preview.src=URL.createObjectURL(f);preview.style.display='block';});const form=document.getElementById('lf-create-form');if(form)form.addEventListener('submit',function(e){const f=input&&input.files&&input.files[0];if(f&&f.size>5*1024*1024){e.preventDefault();alert('Please choose an image smaller than 5 MB.');}});})();
+    </script>''', items=items, query=query, type_filter=item_type_filter, category_filter=category_filter, mine=mine,
+       categories_lf=LOST_FOUND_CATEGORIES, mine_count=mine_count, open_count=open_count,
+       today=__import__('datetime').date.today().isoformat())
     return render_page(body, 'Lost & Found', 'COMMUNITY CARE')
+
+
+@app.route('/lost-found/<int:item_id>/photo')
+def lost_found_image(item_id):
+    """Serve database-backed Lost & Found photos (persistent on Vercel)."""
+    if not session.get('user_id') and not session.get('worker_id'):
+        abort(401)
+    con = get_db()
+    item = con.execute('SELECT image_data,image_mime,image_path FROM lost_found WHERE id=?', (item_id,)).fetchone()
+    con.close()
+    if not item:
+        abort(404)
+    if item['image_data']:
+        try:
+            raw = base64.b64decode(item['image_data'], validate=True)
+        except (ValueError, TypeError):
+            abort(404)
+        mime = item['image_mime'] if item['image_mime'] in ('image/png','image/jpeg','image/gif','image/webp') else 'application/octet-stream'
+        return Response(raw, mimetype=mime, headers={'X-Content-Type-Options':'nosniff', 'Cache-Control':'private, max-age=3600'})
+    if item['image_path']:
+        return send_from_directory(UPLOAD_FOLDER, item['image_path'])
+    abort(404)
+
+
+@app.route('/lost-found/<int:item_id>/edit', methods=['GET', 'POST'])
+def lost_found_edit(item_id):
+    if not require('student'):
+        return redirect(url_for('login'))
+    con = get_db()
+    item = con.execute('SELECT * FROM lost_found WHERE id=? AND user_id=?', (item_id, session['user_id'])).fetchone()
+    if not item:
+        con.close(); flash('Listing not found or you do not own it.', 'error')
+        return redirect(url_for('lost_found_page', mine='1'))
+    if item['status'] != 'Open':
+        con.close(); flash('Resolved listings cannot be edited.', 'error')
+        return redirect(url_for('lost_found_page', mine='1'))
+    if request.method == 'POST':
+        item_type = request.form.get('item_type', 'Lost')
+        category = request.form.get('category', 'Other')
+        title = request.form.get('title', '').strip()[:140]
+        description = request.form.get('description', '').strip()[:2000]
+        location = request.form.get('location', '').strip()[:200]
+        item_date = request.form.get('item_date', '').strip()[:20]
+        if item_type not in ('Lost', 'Found') or category not in LOST_FOUND_CATEGORIES or not title or not description or not location:
+            con.close(); flash('Complete all required listing fields.', 'error')
+            return redirect(url_for('lost_found_edit', item_id=item_id))
+        image_data = item['image_data'] or ''
+        image_mime = item['image_mime'] or ''
+        image_path = item['image_path'] or ''
+        try:
+            uploaded_data, uploaded_mime = save_lost_found_photo(request.files.get('item_photo'))
+            if uploaded_data:
+                image_data, image_mime, image_path = uploaded_data, uploaded_mime, ''
+            elif request.form.get('remove_photo') == 'yes':
+                image_data, image_mime, image_path = '', '', ''
+        except ValueError as exc:
+            con.close(); flash(str(exc), 'error')
+            return redirect(url_for('lost_found_edit', item_id=item_id))
+        con.execute('UPDATE lost_found SET item_type=?,category=?,title=?,description=?,location=?,item_date=?,image_path=?,image_data=?,image_mime=? WHERE id=? AND user_id=?',
+                    (item_type, category, title, description, location, item_date, image_path, image_data, image_mime, item_id, session['user_id']))
+        con.commit(); con.close()
+        if image_path != (item['image_path'] or ''):
+            remove_lost_found_photo(item['image_path'])
+        flash('Your listing has been updated.', 'success')
+        return redirect(url_for('lost_found_page', mine='1'))
+    con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">YOUR LISTING</div><h1>Edit item</h1><p>Update the details or replace the item photo.</p></div><a class="btn btn-light" href="{{url_for('lost_found_page',mine='1')}}">← My listings</a></div><div class="card"><form method="POST" enctype="multipart/form-data" class="form-grid"><div><label>Listing type</label><select name="item_type"><option {{'selected' if item['item_type']=='Lost' else ''}}>Lost</option><option {{'selected' if item['item_type']=='Found' else ''}}>Found</option></select></div><div><label>Category</label><select name="category">{% for c in categories_lf %}<option {{'selected' if (item['category'] or 'Other')==c else ''}}>{{c}}</option>{% endfor %}</select></div><div><label>Item name</label><input name="title" required maxlength="140" value="{{item['title']}}"></div><div><label>Location</label><input name="location" required maxlength="200" value="{{item['location']}}"></div><div><label>Date lost/found</label><input type="date" name="item_date" value="{{item['item_date'] or ''}}"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000">{{item['description']}}</textarea></div>{% if item['image_data'] or item['image_path'] %}<div class="full"><label>Current photo</label><img src="{{url_for('lost_found_image',item_id=item['id'])}}" alt="Current item photo" style="display:block;max-width:260px;max-height:220px;object-fit:contain;border-radius:14px;border:1px solid #e7dcd2"><label style="margin-top:10px"><input type="checkbox" name="remove_photo" value="yes" style="width:auto"> Remove current photo if no replacement is uploaded</label></div>{% endif %}<div class="full"><label>Replace photo (optional, up to 5 MB)</label><input type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"></div><div class="full"><button class="btn btn-primary" type="submit">Save changes →</button></div></form></div>''', item=item, categories_lf=LOST_FOUND_CATEGORIES)
+    return render_page(body, 'Edit Lost & Found Item', 'COMMUNITY CARE')
 
 
 @app.route('/lost-found/<int:item_id>/close', methods=['POST'])
 def lost_found_close(item_id):
-    if not require('admin'):
+    if not session.get('user_id') and not session.get('worker_id'):
         return redirect(url_for('login'))
-    con = get_db(); con.execute("UPDATE lost_found SET status='Closed' WHERE id=?", (item_id,)); con.commit(); con.close()
+    con = get_db()
+    if require('admin'):
+        item = con.execute("SELECT id,user_id,title FROM lost_found WHERE id=? AND status='Open'", (item_id,)).fetchone()
+    elif require('student'):
+        item = con.execute("SELECT id,user_id,title FROM lost_found WHERE id=? AND user_id=? AND status='Open'", (item_id, session['user_id'])).fetchone()
+    else:
+        item = None
+    if not item:
+        con.close(); flash('Listing not found or you do not have permission to close it.', 'error')
+        return redirect(url_for('lost_found_page'))
+    con.execute("UPDATE lost_found SET status='Closed' WHERE id=?", (item_id,))
+    con.commit(); con.close()
     flash('Listing marked as resolved.', 'success')
-    return redirect(url_for('lost_found_page'))
-
+    return redirect(url_for('lost_found_page', mine='1') if require('student') else url_for('lost_found_page'))
 
 def clean_map_form():
     name = request.form.get('name', '').strip()[:140]
