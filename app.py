@@ -1,104 +1,96 @@
-        if image_path != (item['image_path'] or ''):
-            remove_lost_found_photo(item['image_path'])
-        flash('Your listing has been updated.', 'success')
-        return redirect(url_for('lost_found_page', mine='1'))
-    con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">YOUR LISTING</div><h1>Edit item</h1><p>Update the details or replace the item photo.</p></div><a class="btn btn-light" href="{{url_for('lost_found_page',mine='1')}}">← My listings</a></div><div class="card"><form method="POST" enctype="multipart/form-data" class="form-grid"><div><label>Listing type</label><select name="item_type"><option {{'selected' if item['item_type']=='Lost' else ''}}>Lost</option><option {{'selected' if item['item_type']=='Found' else ''}}>Found</option></select></div><div><label>Category</label><select name="category">{% for c in categories_lf %}<option {{'selected' if (item['category'] or 'Other')==c else ''}}>{{c}}</option>{% endfor %}</select></div><div><label>Item name</label><input name="title" required maxlength="140" value="{{item['title']}}"></div><div><label>Location</label><input name="location" required maxlength="200" value="{{item['location']}}"></div><div><label>Date lost/found</label><input type="date" name="item_date" value="{{item['item_date'] or ''}}"></div><div class="full"><label>Description</label><textarea name="description" required maxlength="2000">{{item['description']}}</textarea></div>{% if item['image_data'] or item['image_path'] %}<div class="full"><label>Current photo</label><img src="{{url_for('lost_found_image',item_id=item['id'])}}" alt="Current item photo" style="display:block;max-width:260px;max-height:220px;object-fit:contain;border-radius:14px;border:1px solid #e7dcd2"><label style="margin-top:10px"><input type="checkbox" name="remove_photo" value="yes" style="width:auto"> Remove current photo if no replacement is uploaded</label></div>{% endif %}<div class="full"><label>Replace photo (optional, up to 5 MB)</label><input type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"></div><div class="full"><button class="btn btn-primary" type="submit">Save changes →</button></div></form></div>''', item=item, categories_lf=LOST_FOUND_CATEGORIES)
-    return render_page(body, 'Edit Lost & Found Item', 'COMMUNITY CARE')
+from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
+import sqlite3, os, uuid, re, json, logging, base64
+from urllib.parse import urlparse, quote_plus
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
+app = Flask(__name__)
+application = app  # WSGI alias for deployment platforms
+app.secret_key = os.environ.get("SECRET_KEY", "")
+if not app.secret_key:
+    # A stable secret is mandatory in production; local development gets a warning-safe generated fallback.
+    app.secret_key = os.urandom(32).hex()
+    if os.environ.get("VERCEL"):
+        raise RuntimeError("Set SECRET_KEY in Vercel Environment Variables before deploying.")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")))
+logging.basicConfig(level=logging.INFO)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or os.environ.get("POSTGRES_PRISMA_URL") or "").strip()
+DATABASE = os.path.join("/tmp", "campuscare.db") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "campuscare.db")
+UPLOAD_FOLDER = os.path.join("/tmp", "campuscare_uploads") if os.environ.get("VERCEL") else os.path.join(BASE_DIR, "static", "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6 MB total request limit
 
-@app.route('/lost-found/<int:item_id>/close', methods=['POST'])
-def lost_found_close(item_id):
-    if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
-    con = get_db()
-    if require('admin'):
-        item = con.execute("SELECT id,user_id,title FROM lost_found WHERE id=? AND status='Open'", (item_id,)).fetchone()
-    elif require('student'):
-        item = con.execute("SELECT id,user_id,title FROM lost_found WHERE id=? AND user_id=? AND status='Open'", (item_id, session['user_id'])).fetchone()
-    else:
-        item = None
-    if not item:
-        con.close(); flash('Listing not found or you do not have permission to close it.', 'error')
-        return redirect(url_for('lost_found_page'))
-    con.execute("UPDATE lost_found SET status='Closed' WHERE id=?", (item_id,))
-    con.commit(); con.close()
-    flash('Listing marked as resolved.', 'success')
-    return redirect(url_for('lost_found_page', mine='1') if require('student') else url_for('lost_found_page'))
+CATEGORIES = ["Hostel","Classroom","Laboratory","Washroom","Electricity","Water","Wi-Fi","Food/Mess","Cleaning","Security","Other"]
+PRIORITIES = ["Low","Medium","High","Emergency"]
+STATUSES = ["Submitted","Assigned","In Progress","Resolved","Closed"]
+ALLOWED_EXTENSIONS = {"png","jpg","jpeg","gif","webp"}
 
-def clean_map_form():
-    name = request.form.get('name', '').strip()[:140]
-    category = request.form.get('category', 'General').strip()[:60]
-    building = request.form.get('building', '').strip()[:140]
-    description = request.form.get('description', '').strip()[:1000]
-    hours = request.form.get('hours', '').strip()[:100]
-    phone = re.sub(r'[^0-9+ -]', '', request.form.get('phone', ''))[:30]
-    map_url = request.form.get('map_url', '').strip()[:500]
-    if map_url and not (map_url.startswith('https://') or map_url.startswith('http://')):
-        raise ValueError('Map links must start with http:// or https://.')
-    if not name:
-        raise ValueError('Enter a location name.')
-    return (name, category or 'General', building, description, hours, phone, map_url)
+def valid_campus_email(email):
+    return bool(re.fullmatch(r"[^@\s]+@campus\.360", email.strip().lower()))
 
+DEMO_WORKERS = [
+    ("Ravi Kumar", "Electrical", "9876543210"),
+    ("Suresh Reddy", "Plumbing", "9876543211"),
+    ("Arjun Kumar", "Cleaning", "9876543212"),
+    ("Naveen Kumar", "Maintenance", "9876543213"),
+    ("Mahesh", "Wi-Fi & Network", "9876543214"),
+    ("Prakash", "Security", "9876543215"),
+]
 
-@app.route('/campus-map', methods=['GET', 'POST'])
-def campus_map():
-    if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
-    if request.method == 'POST':
-        if not require('admin'):
-            flash('Only administrators can add campus locations.', 'error')
-            return redirect(url_for('campus_map'))
+CONTACTS = [
+    ("Campus Admin", "Administration", "9876500001"),
+    ("Hostel Warden", "Hostel Office", "9876500002"),
+    ("Maintenance Desk", "Maintenance", "9876500003"),
+    ("Security Desk", "Security", "9876500004"),
+    ("Emergency Help", "Emergency", "112"),
+]
+
+class PostgresConnection:
+    """Small SQLite-compatible adapter for managed PostgreSQL (Neon/Vercel Postgres)."""
+    def __init__(self, dsn):
         try:
-            values = clean_map_form()
-        except ValueError as exc:
-            flash(str(exc), 'error')
-            return redirect(url_for('campus_map'))
-        con = get_db()
-        con.execute('INSERT INTO campus_locations(name,category,building,description,hours,phone,map_url) VALUES(?,?,?,?,?,?,?)', values)
-        con.commit(); con.close()
-        flash('Campus location added.', 'success')
-        return redirect(url_for('campus_map'))
-    query = request.args.get('q', '').strip()[:100]
-    con = get_db(); sql = 'SELECT * FROM campus_locations WHERE active=1'; params = []
-    if query:
-        sql += ' AND (name LIKE ? OR category LIKE ? OR building LIKE ? OR description LIKE ?)'; params += [f'%{query}%'] * 4
-    sql += ' ORDER BY category,name'; locations = con.execute(sql, params).fetchall(); con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">FIND YOUR WAY</div><h1>Campus map & services</h1><p>Find campus buildings and support services. Administrators can add, edit and remove outdated locations.</p></div><span class="chip submitted">{{locations|length}} locations</span></div>
-    <div class="help-hero"><div class="hero-kicker">CAMPUS NAVIGATION</div><h2>Know where to go.</h2><p>Search by building, service or category. Open a saved map link, or use Google Maps search for the location name. Only add verified campus details.</p></div>
-    {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:20px"><h3 style="margin-top:0">＋ Add a campus location</h3><form method="POST" class="form-grid"><div><label>Place name *</label><input name="name" required placeholder="Central Library"></div><div><label>Category</label><select name="category"><option>Academic</option><option>Library</option><option>Hostel</option><option>Food & Mess</option><option>Medical</option><option>Security</option><option>Administration</option><option>Sports</option><option>Transport</option><option>Other</option></select></div><div><label>Building / block</label><input name="building" placeholder="Block A"></div><div><label>Opening hours</label><input name="hours" placeholder="9 AM – 6 PM"></div><div><label>Contact phone (optional)</label><input name="phone" placeholder="Verified campus number"></div><div><label>Google Maps link (optional)</label><input name="map_url" type="url" placeholder="https://maps.google.com/…"></div><div class="full"><label>Description / directions</label><textarea name="description" placeholder="Floor, landmark or service details"></textarea></div><div><button class="btn btn-primary" type="submit">Save location →</button></div></form></div>{% endif %}
-    <form class="searchbar"><input name="q" value="{{query}}" placeholder="Search library, hostel, medical centre, block…"><button class="btn btn-light">Search</button></form><div class="contact-grid">{% for loc in locations %}<article class="contact-card"><div class="tile-icon">⌖</div><span class="chip submitted">{{loc['category']}}</span><h3 style="margin-top:12px">{{loc['name']}}</h3>{% if loc['building'] %}<p class="muted"><b>Building:</b> {{loc['building']}}</p>{% endif %}<p class="muted">{{loc['description']}}</p>{% if loc['hours'] %}<p class="muted">Hours: {{loc['hours']}}</p>{% endif %}{% if loc['phone'] %}<a class="phone" href="tel:{{loc['phone']}}">☎ {{loc['phone']}}</a>{% endif %}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><a class="btn btn-primary" target="_blank" rel="noopener noreferrer" href="{{loc['map_url'] or ('https://www.google.com/maps/search/?api=1&query=' ~ (loc['name'] ~ ' ' ~ loc['building'])|urlencode)}}">Open map / directions ↗</a>{% if session.get('role')=='admin' %}<a class="btn btn-light" href="#edit-location-{{loc['id']}}">Edit details</a>{% endif %}</div>
-    {% if session.get('role')=='admin' %}<details id="edit-location-{{loc['id']}}" style="margin-top:14px;border-top:1px solid #e7dcd2;padding-top:14px"><summary style="font-size:12px;font-weight:850;cursor:pointer">Update this location</summary><form method="POST" action="{{url_for('campus_map_update',location_id=loc['id'])}}" class="form-grid" style="margin-top:12px"><div><label>Place name</label><input name="name" required value="{{loc['name']}}"></div><div><label>Category</label><input name="category" required value="{{loc['category']}}"></div><div><label>Building / block</label><input name="building" value="{{loc['building']}}"></div><div><label>Opening hours</label><input name="hours" value="{{loc['hours']}}"></div><div><label>Phone</label><input name="phone" value="{{loc['phone']}}"></div><div><label>Map link</label><input name="map_url" type="url" value="{{loc['map_url']}}" placeholder="https://…"></div><div class="full"><label>Description / directions</label><textarea name="description">{{loc['description']}}</textarea></div><div><button class="btn btn-primary" type="submit">Save changes</button></div></form><form method="POST" action="{{url_for('campus_map_remove',location_id=loc['id'])}}" onsubmit="return confirm('Remove this location from the campus map?')" style="margin-top:10px"><button class="btn btn-light" type="submit">Remove location</button></form></details>{% endif %}</article>{% else %}<div class="empty">No locations have been added yet. Ask an administrator to add verified campus locations.</div>{% endfor %}</div>''', locations=locations, query=query)
-    return render_page(body, 'Campus Map', 'FIND YOUR WAY')
+            import psycopg2
+            from psycopg2.extras import DictCursor
+        except ImportError as exc:
+            raise RuntimeError("DATABASE_URL is set but psycopg2-binary is missing. Add it to requirements.txt.") from exc
+        if dsn.startswith("postgres://"):
+            dsn = "postgresql://" + dsn[len("postgres://"):]
+        self._driver = psycopg2
+        self._conn = psycopg2.connect(dsn, cursor_factory=DictCursor, sslmode="require")
+    def execute(self, sql, params=()):
+        cur = self._conn.cursor()
+        if sql.strip().upper().startswith("PRAGMA TABLE_INFO("):
+            table = re.search(r"PRAGMA\s+table_info\(([^)]+)\)", sql, re.I).group(1).strip().strip('"`')
+            cur.execute("SELECT ordinal_position-1 AS cid, column_name AS name, data_type AS type, 0 AS not_null, column_default AS dflt_value, 0 AS pk FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s ORDER BY ordinal_position", (table,))
+            return cur
+        cur.execute(sql.replace("?", "%s"), tuple(params or ()))
+        return cur
+    def executescript(self, script):
+        # DDL statements in our schema contain no embedded semicolons.
+        for statement in script.split(";"):
+            statement = statement.strip()
+            if statement:
+                statement = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", statement, flags=re.I)
+                self.execute(statement)
+    def commit(self): self._conn.commit()
+    def rollback(self): self._conn.rollback()
+    def close(self): self._conn.close()
 
 
-@app.route('/campus-map/<int:location_id>/update', methods=['POST'])
-def campus_map_update(location_id):
-    if not require('admin'):
-        return redirect(url_for('login'))
-    try:
-        values = clean_map_form()
-    except ValueError as exc:
-        flash(str(exc), 'error')
-        return redirect(url_for('campus_map'))
+def get_db():
+    if DATABASE_URL:
+        return PostgresConnection(DATABASE_URL)
+    con = sqlite3.connect(DATABASE, timeout=20)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    return con
+
+def initialize_database():
     con = get_db()
-    cur = con.execute('UPDATE campus_locations SET name=?,category=?,building=?,description=?,hours=?,phone=?,map_url=? WHERE id=? AND active=1', values + (location_id,))
-    con.commit(); con.close()
-    flash('Campus location updated.' if getattr(cur, 'rowcount', 1) else 'Location not found or already removed.', 'success')
-    return redirect(url_for('campus_map'))
-
-
-@app.route('/campus-map/<int:location_id>/remove', methods=['POST'])
-def campus_map_remove(location_id):
-    if not require('admin'):
-        return redirect(url_for('login'))
-    con = get_db(); con.execute('UPDATE campus_locations SET active=0 WHERE id=?', (location_id,)); con.commit(); con.close()
-    flash('Location removed from the active campus map.', 'success')
-    return redirect(url_for('campus_map'))
-
-
-initialize_database()
-if os.environ.get("VERCEL") and not DATABASE_URL:
-    logging.warning("DATABASE_URL is not configured: SQLite data in /tmp is temporary and may disappear across Vercel instances. Configure a managed PostgreSQL database for persistent records.")
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    con.executescript("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
