@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+application = app  # WSGI alias for deployment platforms
 app.secret_key = os.environ.get("SECRET_KEY", "")
 if not app.secret_key:
     # A stable secret is mandatory in production; local development gets a warning-safe generated fallback.
@@ -652,6 +653,88 @@ def submit_feedback(complaint_id):
     if c: con.execute('INSERT INTO feedback(complaint_id,rating,comment) VALUES(?,?,?)',(c['id'],rating,request.form.get('comment','').strip())); con.execute("UPDATE complaints SET status='Closed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(c['id'],)); con.commit()
     con.close(); flash('Thank you for your feedback. The complaint is now closed.','success'); return redirect(url_for('complaint_status',complaint_id=complaint_id))
 
+
+
+@app.route('/admin/export-excel')
+def admin_export_excel():
+    """Download an admin-only Excel workbook of operational data from the primary DB."""
+    if not require('admin'):
+        return redirect(url_for('login'))
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        from io import BytesIO
+        from datetime import datetime
+    except ImportError:
+        return Response('Excel export requires openpyxl. Add openpyxl>=3.1,<4.0 to requirements.txt and redeploy.', status=500, mimetype='text/plain')
+
+    # Explicit allowlist prevents unrelated/system tables from being exported.
+    tables = [
+        ('Students_Accounts', "SELECT id,name,email,role,room,mobile,student_id,department,year,created_at FROM users ORDER BY id"),
+        ('Workers', "SELECT id,name,department,mobile,active,email,worker_code FROM workers ORDER BY id"),
+        ('Complaints', "SELECT id,complaint_id,user_id,category,title,description,location,priority,image,status,assigned_to,assigned_worker_id,admin_remark,created_at,updated_at FROM complaints ORDER BY id"),
+        ('Feedback', "SELECT id,complaint_id,rating,comment FROM feedback ORDER BY id"),
+        ('Notices', "SELECT id,title,body,category,priority,created_by,active,created_at FROM notices ORDER BY id"),
+        ('Notifications', "SELECT id,account_type,account_id,title,message,link,is_read,created_at FROM notifications ORDER BY id"),
+        ('Lost_Found', "SELECT id,user_id,item_type,title,description,location,item_date,category,image_path,status,created_at FROM lost_found ORDER BY id"),
+        ('Campus_Locations', "SELECT id,name,category,building,description,hours,phone,map_url,active,created_at FROM campus_locations ORDER BY id"),
+        ('AI_Chat_History', "SELECT id,account_type,account_id,role,message,created_at FROM ai_chat_messages ORDER BY id"),
+        ('Password_Reset_Requests', "SELECT id,account_type,account_id,email,status,created_at,reviewed_at FROM password_reset_requests ORDER BY id"),
+    ]
+    wb = Workbook()
+    summary = wb.active
+    summary.title = 'Export_Info'
+    summary.append(['Campus Care 360 - Admin Data Export'])
+    summary.append(['Generated at (UTC)', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')])
+    summary.append(['Source', 'Configured application database (Neon when DATABASE_URL is configured)'])
+    summary.append(['Security', 'Password fields and password hashes are intentionally excluded.'])
+    summary.append([])
+    summary.append(['Worksheet', 'Records exported'])
+
+    con = get_db()
+    try:
+        for sheet_name, sql in tables:
+            ws = wb.create_sheet(sheet_name[:31])
+            cur = con.execute(sql)
+            headers = [d[0] for d in cur.description] if cur.description else []
+            ws.append(headers)
+            count = 0
+            for row in cur.fetchall():
+                values = [row[h] for h in headers]
+                # Avoid Excel formula injection from user-submitted text.
+                values = [("'" + v if isinstance(v, str) and v[:1] in ('=', '+', '-', '@') else v) for v in values]
+                ws.append(values)
+                count += 1
+            summary.append([sheet_name, count])
+            ws.freeze_panes = 'A2'
+            ws.auto_filter.ref = ws.dimensions
+            for cell in ws[1]:
+                cell.font = Font(bold=True, color='FFFFFF')
+                cell.fill = PatternFill('solid', fgColor='152742')
+                cell.alignment = Alignment(wrap_text=True, vertical='top')
+            for col_idx, cells in enumerate(ws.columns, start=1):
+                max_len = min(max((len(str(c.value)) if c.value is not None else 0 for c in list(cells)[:150]), default=10), 48)
+                ws.column_dimensions[get_column_letter(col_idx)].width = max(12, max_len + 2)
+        for cell in summary[1]:
+            cell.font = Font(bold=True, size=14, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='152742')
+        for cell in summary[6]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='152742')
+        summary.column_dimensions['A'].width = 36
+        summary.column_dimensions['B'].width = 78
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response.headers['Content-Disposition'] = 'attachment; filename="Campus360_Admin_Data.xlsx"'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    finally:
+        con.close()
+
+
 @app.route('/admin')
 def admin_dashboard():
     if not require('admin'): return redirect(url_for('login'))
@@ -660,7 +743,22 @@ def admin_dashboard():
     if q: sql+=' AND (c.complaint_id LIKE ? OR c.title LIKE ? OR c.category LIKE ? OR c.location LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)'; params += [f'%{q}%']*6
     if selected: sql+=' AND c.status=?'; params.append(selected)
     sql+=' ORDER BY c.created_at DESC'; cs=con.execute(sql,params).fetchall(); stats={s:con.execute('SELECT COUNT(*) n FROM complaints WHERE status=?',(s,)).fetchone()['n'] for s in STATUSES}; students=con.execute("SELECT COUNT(*) n FROM users WHERE role='student'").fetchone()['n']; emergency=con.execute("SELECT COUNT(*) n FROM complaints WHERE priority='Emergency' AND status!='Closed'").fetchone()['n']
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">OPERATIONS CENTER</div><h1>Campus support overview</h1><p>Review, assign, support students and move complaints forward.</p></div><span class="chip" style="background:#152742;color:#fff;padding:9px 12px">ADMIN MODE</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Total reports</span><div class="stat-icon">▦</div></div><strong>{{cs|length}}</strong></div><div class="stat"><div class="stat-top"><span>In progress</span><div class="stat-icon">◌</div></div><strong>{{stats['Assigned']+stats['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Students</span><div class="stat-icon">👨‍🎓</div></div><strong>{{students}}</strong></div><div class="stat"><div class="stat-top"><span>Emergency</span><div class="stat-icon">!</div></div><strong>{{emergency}}</strong></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Immediate danger? Contact emergency services.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Review emergency contacts and response guidance.</small></span><span class="tile-arrow">›</span></a></div><form class="toolbar"><input name="q" value="{{q}}" placeholder="Search complaint, student, mobile, location…"><select name="status"><option value="">All statuses</option>{% for s in statuses %}<option value="{{s}}" {{'selected' if selected==s else ''}}>{{s}}</option>{% endfor %}</select><button class="btn btn-blue">Filter</button></form><div class="section-title"><h3>Complaint queue</h3><span>{{cs|length}} matching reports</span></div><div class="admin-list">{% for c in cs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div><div class="admin-title">{{c['title']}}</div><div class="admin-meta">{{c['name']}} · {{c['mobile']}} · Room {{c['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="chip {{'emergency' if c['priority']=='Emergency' else 'assigned'}}">{{c['priority']}}</span></div></div><div class="admin-desc">{{c['description']}}</div><form class="admin-form" method="POST" action="{{url_for('update_complaint',id=c['id'])}}"><div><label>Status</label><select name="status">{% for s in statuses %}<option {{'selected' if c['status']==s else ''}}>{{s}}</option>{% endfor %}</select></div><div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} — {{w['department']}}</option>{% endfor %}</select></div><div><label>Admin remark</label><input name="remark" value="{{c['admin_remark']}}" placeholder="Add an update for the student"></div><button class="btn btn-primary" type="submit">Save</button></form><div style="display:flex;justify-content:flex-end;gap:15px;font-size:11px;margin-top:12px;color:#60708b">{% if c['image'] %}<a href="{{url_for('uploaded_file',filename=c['image'])}}" target="_blank">View photo ↗</a>{% endif %}<a href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}">Open details →</a></div></div>{% else %}<div class="empty">No complaints match your filters.</div>{% endfor %}</div>''',cs=cs,stats=stats,students=students,emergency=emergency,q=q,selected=selected,workers=workers)
+    data_counts = [
+        ('Student accounts', "SELECT COUNT(*) n FROM users WHERE role='student'"),
+        ('Workers', 'SELECT COUNT(*) n FROM workers'),
+        ('Complaints', 'SELECT COUNT(*) n FROM complaints'),
+        ('Feedback', 'SELECT COUNT(*) n FROM feedback'),
+        ('Notices', 'SELECT COUNT(*) n FROM notices'),
+        ('Notifications', 'SELECT COUNT(*) n FROM notifications'),
+        ('Lost & Found', 'SELECT COUNT(*) n FROM lost_found'),
+        ('Campus locations', 'SELECT COUNT(*) n FROM campus_locations'),
+        ('AI chat messages', 'SELECT COUNT(*) n FROM ai_chat_messages'),
+        ('Password requests', 'SELECT COUNT(*) n FROM password_reset_requests'),
+    ]
+    data_counts = [(label, con.execute(query).fetchone()['n']) for label, query in data_counts]
+    data_total = sum(count for _, count in data_counts)
+    data_storage = 'Neon PostgreSQL' if DATABASE_URL else 'Local SQLite (temporary on Vercel)'
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">OPERATIONS CENTER</div><h1>Campus support overview</h1><p>Review, assign, support students and move complaints forward.</p></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="chip" style="background:#152742;color:#fff;padding:9px 12px">ADMIN MODE</span></div></div><div class="stats"><div class="stat"><div class="stat-top"><span>Total reports</span><div class="stat-icon">▦</div></div><strong>{{cs|length}}</strong></div><div class="stat"><div class="stat-top"><span>In progress</span><div class="stat-icon">◌</div></div><strong>{{stats['Assigned']+stats['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Students</span><div class="stat-icon">👨‍🎓</div></div><strong>{{students}}</strong></div><div class="stat"><div class="stat-top"><span>Emergency</span><div class="stat-icon">!</div></div><strong>{{emergency}}</strong></div></div><section class="card" style="margin-bottom:24px;padding:20px 24px;border-left:4px solid #3568ff"><div style="display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap"><div style="min-width:220px;flex:1"><div class="eyebrow">DATA VAULT · ADMIN ONLY</div><h3 style="margin:6px 0 5px">All Campus Care 360 data</h3><p class="muted" style="margin:0;font-size:12px">{{data_total}} records across {{data_counts|length}} data categories · Storage: {{data_storage}}</p></div><a class="btn btn-primary" href="{{url_for('admin_export_excel')}}">↓ Download Excel workbook</a></div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:15px">{% for label,count in data_counts %}<span style="background:#f3f6fb;border:1px solid #e5eaf3;border-radius:999px;padding:7px 10px;font-size:11px;color:#40516d">{{label}} <strong style="color:#152742">{{count}}</strong></span>{% endfor %}</div><p style="font-size:11px;color:#71809a;margin:13px 0 0">The Excel file includes supported account, complaint, feedback, notice, notification, Lost & Found, campus-location, AI chat and password-request records. Passwords and password hashes are excluded.</p></section><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Immediate danger? Contact emergency services.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Review emergency contacts and response guidance.</small></span><span class="tile-arrow">›</span></a></div><form class="toolbar"><input name="q" value="{{q}}" placeholder="Search complaint, student, mobile, location…"><select name="status"><option value="">All statuses</option>{% for s in statuses %}<option value="{{s}}" {{'selected' if selected==s else ''}}>{{s}}</option>{% endfor %}</select><button class="btn btn-blue">Filter</button></form><div class="section-title"><h3>Complaint queue</h3><span>{{cs|length}} matching reports</span></div><div class="admin-list">{% for c in cs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div><div class="admin-title">{{c['title']}}</div><div class="admin-meta">{{c['name']}} · {{c['mobile']}} · Room {{c['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="chip {{'emergency' if c['priority']=='Emergency' else 'assigned'}}">{{c['priority']}}</span></div></div><div class="admin-desc">{{c['description']}}</div><form class="admin-form" method="POST" action="{{url_for('update_complaint',id=c['id'])}}"><div><label>Status</label><select name="status">{% for s in statuses %}<option {{'selected' if c['status']==s else ''}}>{{s}}</option>{% endfor %}</select></div><div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} — {{w['department']}}</option>{% endfor %}</select></div><div><label>Admin remark</label><input name="remark" value="{{c['admin_remark']}}" placeholder="Add an update for the student"></div><button class="btn btn-primary" type="submit">Save</button></form><div style="display:flex;justify-content:flex-end;gap:15px;font-size:11px;margin-top:12px;color:#60708b">{% if c['image'] %}<a href="{{url_for('uploaded_file',filename=c['image'])}}" target="_blank">View photo ↗</a>{% endif %}<a href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}">Open details →</a></div></div>{% else %}<div class="empty">No complaints match your filters.</div>{% endfor %}</div>''',cs=cs,stats=stats,students=students,emergency=emergency,q=q,selected=selected,workers=workers,data_counts=data_counts,data_total=data_total,data_storage=data_storage)
     con.close()
     return render_page(body,'Admin Dashboard','OPERATIONS CENTER')
 
