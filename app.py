@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
-import sqlite3, os, uuid, re, json, logging, base64
+import sqlite3, os, uuid, re, json, logging, base64, io, csv
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -335,8 +335,9 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 .logo.logo-mark{position:relative;overflow:hidden;gap:0;width:48px;height:48px;border-radius:16px;background:linear-gradient(145deg,#c82b3e 0%,#8e1728 55%,#3a1118 100%);box-shadow:0 12px 28px rgba(142,23,40,.28);border:1px solid rgba(255,255,255,.32);isolation:isolate}
 .logo.logo-mark:before{content:"";position:absolute;inset:5px;border:1px solid rgba(255,255,255,.24);border-radius:12px;transform:rotate(-8deg);z-index:-1}
 .logo.logo-mark:after{content:"";position:absolute;width:23px;height:23px;border:2px solid rgba(255,255,255,.24);border-radius:50%;right:-8px;top:-7px}
-.logo-c{font-size:26px!important;font-weight:950;letter-spacing:-2px!important;line-height:1;color:#fff}
-.logo-degree{font-size:9px;font-weight:950;letter-spacing:-.2px;color:#ffe7d8;align-self:flex-end;margin:0 0 11px -1px}
+.logo.logo-mark{display:flex;align-items:center;justify-content:center;gap:0}
+.logo-c{font-size:22px!important;font-weight:950;letter-spacing:-1.5px!important;line-height:1;color:#E8D29A}
+.logo-degree{font-size:9px;font-weight:950;letter-spacing:-.2px;color:#E8D29A;align-self:center;margin:0 0 0 -1px;white-space:nowrap}
 .chatgpt-shell{border-radius:28px;box-shadow:0 24px 70px rgba(51,24,24,.09);border-color:#e5d7cb}
 .chatgpt-header{background:linear-gradient(110deg,#fffdf9,#fbf1e9)}
 .chatgpt-mark,.chatgpt-avatar,.welcome-orb{background:linear-gradient(145deg,#cf3547,#741421 72%,#241417);box-shadow:0 10px 25px rgba(142,23,40,.23)}
@@ -702,6 +703,18 @@ def admin_dashboard():
       <div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{active}}</strong></div>
       <div class="stat"><div class="stat-top"><span>Resolved / closed</span><div class="stat-icon">✓</div></div><strong>{{resolved}}</strong></div>
     </div>
+    <div class="card" style="margin-bottom:24px;border-color:#e5d5ad;background:linear-gradient(135deg,#fffdf7,#fff9e9)">
+      <div class="section-title"><h3>📊 Import accounts from Excel</h3><span>Admin only</span></div>
+      <p class="muted">Upload an .xlsx or .csv file to create student and worker accounts in bulk. Existing emails are skipped. Passwords in the spreadsheet must be at least 8 characters and are stored as password hashes.</p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <a class="btn btn-light" href="{{url_for('admin_import_template')}}">⬇ Download Excel template</a>
+        <form method="POST" action="{{url_for('admin_import_data')}}" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1;min-width:260px">
+          <input type="file" name="import_file" accept=".xlsx,.csv" required style="max-width:340px;background:#fff">
+          <button class="btn btn-blue" type="submit">Import data →</button>
+        </form>
+      </div>
+      <p class="muted" style="margin-bottom:0">Excel workbook: use <b>Students</b> and/or <b>Workers</b> sheets. Do not upload confidential data you do not want to import.</p>
+    </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
     {% for c in complaints %}
@@ -732,6 +745,109 @@ def update_complaint(id):
     if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
     if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
     flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/import-template.xlsx')
+def admin_import_template():
+    if not require('admin'):
+        return redirect(url_for('login'))
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        flash('Excel support is not installed. Add openpyxl to requirements.txt.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Students'
+    ws.append(['name','email','password','mobile','room','department','year','student_id'])
+    ws.append(['Example Student','student1@campus.360','ChangeMe123','9876543210','B-204','CSE','1st Year','CC2026001'])
+    ww = wb.create_sheet('Workers')
+    ww.append(['name','email','password','mobile','department','worker_code'])
+    ww.append(['Example Worker','worker1@campus.360','ChangeMe123','9876543211','Electrical','WKEXAMPLE'])
+    for sheet in wb.worksheets:
+        sheet.freeze_panes='A2'
+        sheet.auto_filter.ref=sheet.dimensions
+        for col in sheet.columns:
+            letter=col[0].column_letter
+            sheet.column_dimensions[letter].width=min(max(max(len(str(c.value or '')) for c in col)+3,14),30)
+    output=io.BytesIO(); wb.save(output); output.seek(0)
+    return Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':'attachment; filename=Campus_Care_360_Import_Template.xlsx'})
+
+@app.route('/admin/import-data', methods=['POST'])
+def admin_import_data():
+    if not require('admin') or not session.get('user_id'):
+        return redirect(url_for('login'))
+    uploaded=request.files.get('import_file')
+    if not uploaded or not uploaded.filename:
+        flash('Choose an Excel (.xlsx) or CSV file first.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    filename=uploaded.filename.lower()
+    try:
+        if filename.endswith('.xlsx'):
+            from openpyxl import load_workbook
+            wb=load_workbook(uploaded, read_only=True, data_only=True)
+            datasets={}
+            for sheet_name in ('Students','Workers'):
+                if sheet_name in wb.sheetnames:
+                    rows=wb[sheet_name].iter_rows(values_only=True)
+                    headers=next(rows, None)
+                    if headers:
+                        keys=[str(v or '').strip().lower().replace(' ','_') for v in headers]
+                        datasets[sheet_name]=[dict(zip(keys,row)) for row in rows if any(v is not None and str(v).strip() for v in row)]
+            wb.close()
+        elif filename.endswith('.csv'):
+            text_data=uploaded.stream.read().decode('utf-8-sig')
+            rows=list(csv.DictReader(io.StringIO(text_data)))
+            # CSV imports are treated as student records; use the template headers.
+            datasets={'Students':[{str(k or '').strip().lower().replace(' ','_'):v for k,v in row.items()} for row in rows]}
+        else:
+            flash('Unsupported file type. Upload .xlsx or .csv.', 'error')
+            return redirect(url_for('admin_dashboard'))
+        con=get_db(); added_students=added_workers=skipped=0; errors=[]
+        def val(row,*names):
+            for name in names:
+                value=row.get(name)
+                if value is not None and str(value).strip(): return str(value).strip()
+            return ''
+        for sheet_name, rows in datasets.items():
+            for line_no,row in enumerate(rows, start=2):
+                name=val(row,'name','full_name'); email=val(row,'email','campus_email').lower(); password=val(row,'password','temporary_password'); mobile=re.sub(r'\D','',val(row,'mobile','phone'))
+                if not name or not valid_campus_email(email) or len(password)<8:
+                    skipped+=1
+                    if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: name, valid @campus.360 email, and password (8+ characters) are required.')
+                    continue
+                exists=con.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone() if sheet_name=='Students' else con.execute('SELECT 1 FROM workers WHERE email=?',(email,)).fetchone()
+                if exists:
+                    skipped+=1
+                    if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: email already exists; skipped.')
+                    continue
+                if sheet_name=='Students':
+                    next_id=con.execute("SELECT COALESCE(MAX(id),0)+1 n FROM users").fetchone()['n']
+                    student_id=val(row,'student_id','studentid') or ('CC'+str(2026000+next_id))
+                    con.execute('INSERT INTO users(name,email,password,role,room,mobile,student_id,department,year) VALUES(?,?,?,?,?,?,?,?,?)',(name,email,generate_password_hash(password),'student',val(row,'room','hostel_room'),mobile,val(row,'student_id','studentid') or student_id,val(row,'department','dept'),val(row,'year','academic_year')))
+                    added_students+=1
+                elif sheet_name=='Workers':
+                    department=val(row,'department','dept')
+                    if not department or len(mobile)!=10:
+                        skipped+=1
+                        if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: department and 10-digit mobile are required.')
+                        continue
+                    code=val(row,'worker_code','worker_id') or ('WK'+uuid.uuid4().hex[:6].upper())
+                    con.execute('INSERT INTO workers(name,department,mobile,active,email,password,worker_code) VALUES(?,?,?,?,?,?,?)',(name,department,mobile,1,email,generate_password_hash(password),code))
+                    added_workers+=1
+                else:
+                    skipped+=1
+        con.commit(); con.close()
+        summary=f'Import complete: {added_students} student(s), {added_workers} worker(s) added; {skipped} row(s) skipped.'
+        flash(summary,'success' if not skipped else 'error')
+        for issue in errors:
+            flash(issue,'error')
+    except Exception as exc:
+        logging.exception('Admin Excel import failed')
+        try: con.rollback(); con.close()
+        except Exception: pass
+        flash('Import failed. Check the workbook sheet names and column headers, then try again.','error')
+    return redirect(url_for('admin_dashboard'))
+
 
 @app.route('/admin/students', methods=['GET','POST'])
 def admin_students():
