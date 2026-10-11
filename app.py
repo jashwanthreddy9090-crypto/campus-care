@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
-import sqlite3, os, uuid, re, json, logging, base64, io, csv
+import sqlite3, os, uuid, re, json, logging, base64
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -267,7 +267,8 @@ def globals_ctx():
 
 # ---------------- UI ----------------
 SHELL = r'''
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title or "Campus Care 360" }}</title><link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='campus-care-360-logo.png') }}">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title or "Campus Care 360" }}</title>
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='campus-care-360-logo.ico', v='20261011-2') }}">
 <style>
 :root{--ink:#12233f;--muted:#71809a;--paper:#f5f7fb;--white:#fff;--blue:#3568ff;--blue2:#6b7cff;--green:#18a873;--orange:#f29a3f;--red:#e95d6a;--line:#e6eaf2;--shadow:0 18px 45px rgba(24,42,75,.08);--radius:22px}*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--ink);background:var(--paper)}a{text-decoration:none;color:inherit}button,input,select,textarea{font:inherit}button{cursor:pointer}.app{min-height:100vh;display:flex}.sidebar{position:fixed;left:0;top:0;bottom:0;width:260px;background:#101d35;color:#fff;padding:26px 18px;display:flex;flex-direction:column;z-index:20;overflow:auto}.brand{display:flex;align-items:center;gap:12px;padding:5px 10px 25px}.logo{width:43px;height:43px;border-radius:14px;background:linear-gradient(135deg,#5d7cff,#31c9ff);display:grid;place-items:center;font-weight:900;box-shadow:0 10px 25px rgba(59,120,255,.28)}.brand h2{font-size:19px;margin:0}.brand small{display:block;color:#8491a9;font-size:11px;margin-top:2px}.side-label{font-size:10px;letter-spacing:1.5px;color:#667590;font-weight:800;padding:0 12px;margin:8px 0 10px}.nav{display:grid;gap:6px}.nav a{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:14px;color:#9da9bd;font-size:13px;font-weight:700}.nav a:hover,.nav a.active{background:rgba(255,255,255,.08);color:#fff}.nav-icon{width:20px;text-align:center;font-size:16px}.side-bottom{margin-top:auto;padding-top:20px}.user-mini{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.045);border-radius:18px;padding:13px;display:flex;gap:10px;align-items:center}.avatar{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#dbe4ff,#a9c8ff);color:#173263;display:grid;place-items:center;font-weight:850}.user-mini strong{display:block;font-size:13px}.user-mini span{font-size:10px;color:#8290a8}.logout{display:block;text-align:center;color:#9ba7bb;font-size:12px;margin-top:13px}.main{margin-left:260px;min-height:100vh;width:calc(100% - 260px)}.topbar{height:82px;background:rgba(255,255,255,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 42px;position:sticky;top:0;z-index:10}.eyebrow{font-size:10px;letter-spacing:2px;font-weight:850;color:#8290a7}.top-right{display:flex;gap:10px;align-items:center}.content{padding:38px 42px 60px;max-width:1450px;margin:auto}.flash{margin:0 42px 18px;padding:13px 16px;border-radius:13px;font-size:13px;font-weight:650}.flash.success{background:#e7f8f0;color:#08764c}.flash.error{background:#fff0f1;color:#b52e3e}.page-head{display:flex;justify-content:space-between;gap:25px;align-items:flex-end;margin-bottom:28px}.page-head h1{font-size:34px;line-height:1.05;margin:7px 0 8px;letter-spacing:-1.3px}.page-head p{margin:0;color:var(--muted);font-size:14px}.btn{border:0;border-radius:13px;padding:12px 17px;font-weight:800;display:inline-flex;align-items:center;gap:8px;transition:.2s}.btn:hover{transform:translateY(-1px)}.btn-primary{background:#152742;color:#fff;box-shadow:0 10px 25px rgba(20,40,70,.18)}.btn-blue{background:var(--blue);color:#fff}.btn-light{background:#fff;border:1px solid var(--line);color:var(--ink)}.hero{position:relative;overflow:hidden;min-height:265px;border-radius:28px;padding:34px;color:#fff;background:radial-gradient(circle at 85% 20%,rgba(92,125,255,.8),transparent 26%),linear-gradient(135deg,#13233e,#203f73 58%,#3568b6);box-shadow:var(--shadow);margin-bottom:31px}.hero:before{content:"";position:absolute;width:330px;height:330px;border:1px solid rgba(255,255,255,.13);border-radius:50%;right:-80px;top:-90px}.hero:after{content:"";position:absolute;width:210px;height:210px;border:1px dashed rgba(255,255,255,.18);border-radius:50%;right:15px;top:-20px}.hero-content{position:relative;z-index:2;max-width:610px}.hero-kicker{font-size:10px;letter-spacing:2px;font-weight:850;color:#a9d8ff}.hero h2{font-size:29px;letter-spacing:-1px;margin:9px 0}.hero p{color:#c8d5e8;max-width:560px;line-height:1.6;font-size:13px}.hero-link{display:inline-block;margin-top:13px;background:#fff;color:#162842;padding:11px 16px;border-radius:12px;font-weight:800;font-size:13px}.orbit{position:absolute;right:80px;top:75px;width:88px;height:88px;border-radius:50%;border:2px solid rgba(255,255,255,.35);z-index:2}.orbit:after{content:"✓";position:absolute;right:-8px;top:12px;width:35px;height:35px;border-radius:11px;background:#fff;color:#1e62da;display:grid;place-items:center;font-weight:900;box-shadow:0 10px 30px rgba(0,0,0,.18)}.section-title{display:flex;align-items:center;justify-content:space-between;margin:0 0 15px}.section-title h3{margin:0;font-size:17px}.section-title span{font-size:11px;color:var(--muted)}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:31px}.stat{background:#fff;border:1px solid var(--line);border-radius:18px;padding:19px;box-shadow:0 8px 28px rgba(24,42,75,.04)}.stat-top{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px;font-weight:700}.stat-icon{width:34px;height:34px;border-radius:11px;background:#eef3ff;display:grid;place-items:center}.stat strong{display:block;font-size:30px;margin-top:9px}.card{background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:25px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.full{grid-column:1/-1}label{display:block;font-size:11px;font-weight:850;color:#52617a;margin:0 0 8px}input,select,textarea{width:100%;border:1px solid #e1e6ef;background:#fbfcfe;color:var(--ink);border-radius:13px;padding:12px 13px;outline:none}input:focus,select:focus,textarea:focus{border-color:#7694ff;box-shadow:0 0 0 4px #edf1ff}textarea{min-height:125px;resize:vertical}.form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.upload{border:1.5px dashed #cdd6e4;border-radius:15px;padding:18px;text-align:center;background:#fafcff;color:#728098;font-size:12px}.upload input{border:0;background:transparent;padding:0;margin-top:8px}.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:30px;background:radial-gradient(circle at 10% 10%,#e5edff,transparent 32%),#f5f7fb}.auth-card{width:min(480px,100%);background:#fff;border:1px solid var(--line);border-radius:28px;padding:34px;box-shadow:var(--shadow)}.auth-brand{display:flex;align-items:center;gap:11px;margin-bottom:25px}.auth-brand h1{font-size:20px;margin:0}.auth-brand span{display:block;color:var(--muted);font-size:11px;margin-top:2px}.auth-card h2{font-size:29px;margin:0 0 7px}.auth-card>p{color:var(--muted);font-size:13px;margin:0 0 23px}.auth-card form{display:grid;gap:14px}.auth-link{text-align:center;font-size:12px;color:var(--muted);margin-top:18px}.auth-link a{color:var(--blue);font-weight:800}.demo{margin-top:22px;background:#f3f6fb;border-radius:15px;padding:13px;font-size:11px;color:#63718a;line-height:1.6}.demo b{color:var(--ink)}.complaints{display:grid;gap:10px}.complaint-row{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}.row-meta{font-size:10px;color:#8995a9;font-weight:750;margin-bottom:6px}.row-title{font-size:14px;font-weight:820}.row-sub{font-size:11px;color:var(--muted);margin-top:6px}.row-right{display:flex;align-items:center;gap:12px}.chip{display:inline-flex;align-items:center;gap:5px;padding:6px 9px;border-radius:99px;font-size:10px;font-weight:850;white-space:nowrap}.chip.submitted{background:#eef3ff;color:#4168cc}.chip.assigned{background:#f4edff;color:#8054bc}.chip.progress{background:#fff4df;color:#ad6b12}.chip.resolved{background:#e8f8f0;color:#08794e}.chip.closed{background:#edf0f3;color:#657184}.chip.emergency{background:#ffe7ea;color:#c53a49}.arrow{color:#99a5b8;font-size:19px}.detail-grid{display:grid;grid-template-columns:1.55fr .8fr;gap:20px}.detail-title{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.detail-title h1{margin:0;font-size:27px}.mini-meta{font-size:11px;color:var(--muted);margin-top:8px}.detail-block{margin-top:23px}.detail-block h4{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8390a5;margin:0 0 9px}.detail-block p{font-size:13px;line-height:1.65;color:#516078;margin:0}.photo{width:100%;max-height:300px;object-fit:cover;border-radius:16px}.timeline{display:grid}.step{display:grid;grid-template-columns:28px 1fr;gap:11px;position:relative;min-height:58px}.step:not(:last-child):before{content:"";position:absolute;left:10px;top:21px;bottom:0;width:2px;background:#e5e9f1}.dot{width:22px;height:22px;border-radius:50%;background:#e8edf5;color:#8a96aa;display:grid;place-items:center;font-size:10px;font-weight:900;z-index:2}.step.done .dot{background:#e4f7ee;color:#0b8b5a}.step.current .dot{background:#e8eeff;color:#3867dd}.step b{font-size:12px}.step span{display:block;color:#8b97a9;font-size:10px;margin-top:3px}.info-list{display:grid;gap:13px}.info-item{display:flex;justify-content:space-between;gap:15px;font-size:12px}.info-item span{color:var(--muted)}.info-item strong{text-align:right}.feedback{margin-top:18px;background:#f8fafc;border:1px solid var(--line);border-radius:17px;padding:17px}.toolbar{background:#fff;border:1px solid var(--line);border-radius:18px;padding:12px;display:grid;grid-template-columns:1fr 190px auto;gap:10px;margin-bottom:18px}.admin-list{display:grid;gap:14px}.admin-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:19px;box-shadow:0 8px 28px rgba(24,42,75,.04)}.admin-top{display:flex;justify-content:space-between;gap:15px}.admin-title{font-weight:850;font-size:15px;margin:5px 0}.admin-meta{font-size:10px;color:#8490a4}.admin-desc{font-size:12px;color:#637089;line-height:1.55;margin:13px 0}.admin-tags{display:flex;gap:7px;flex-wrap:wrap}.admin-form{margin-top:15px;padding-top:15px;border-top:1px solid #edf0f5;display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:8px;align-items:end}.table-wrap{overflow:auto;background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}table{width:100%;border-collapse:collapse;min-width:850px}th,td{text-align:left;padding:14px 15px;border-bottom:1px solid #edf0f5;font-size:12px}th{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#8490a4;background:#fafbfd}td strong{font-size:12px}.searchbar{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:17px}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.contact-grid,.worker-grid,.help-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.contact-card,.worker-card,.help-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;box-shadow:0 8px 28px rgba(24,42,75,.04)}.contact-card h3,.worker-card h3,.help-card h3{margin:0 0 6px;font-size:15px}.muted{color:var(--muted);font-size:12px;line-height:1.6}.phone{display:inline-block;margin-top:12px;font-weight:850;color:#315fda}.faq{display:grid;gap:10px}.faq details{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px}.faq summary{font-weight:800;font-size:13px;cursor:pointer}.faq p{color:var(--muted);font-size:12px;line-height:1.6}.ai-box{display:grid;grid-template-rows:1fr auto;height:520px;background:#fff;border:1px solid var(--line);border-radius:24px;overflow:hidden;box-shadow:var(--shadow)}.chat{padding:20px;overflow:auto;background:linear-gradient(#fbfcff,#f5f7fb)}.msg{max-width:78%;padding:12px 14px;border-radius:16px;margin-bottom:10px;font-size:12px;line-height:1.55}.msg.ai{background:#fff;border:1px solid var(--line)}.msg.user{background:#152742;color:#fff;margin-left:auto}.chat-form{display:flex;gap:8px;padding:13px;border-top:1px solid var(--line);background:#fff}.chat-form input{flex:1}.floating-ai{position:fixed;right:25px;bottom:24px;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#3568ff,#6b7cff);color:#fff;display:grid;place-items:center;font-size:23px;box-shadow:0 15px 35px rgba(53,104,255,.35);z-index:15}.empty{background:#fff;border:1px dashed #ccd5e3;border-radius:18px;padding:35px;text-align:center;color:#7c899d;font-size:13px}.mobile-menu{display:none}
 @media(max-width:1050px){.sidebar{width:220px}.main{margin-left:220px;width:calc(100% - 220px)}.stats{grid-template-columns:repeat(2,1fr)}.detail-grid,.profile-grid{grid-template-columns:1fr}.contact-grid,.worker-grid,.help-grid{grid-template-columns:repeat(2,1fr)}.admin-form{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr 180px}.orbit{right:35px}}
@@ -321,7 +322,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 @media(max-width:760px){.emergency-actions{grid-template-columns:1fr}.emergency-tile{padding:15px}.emergency-panel{padding:22px}}
 
 
-/* ChatGPT-inspired Campus Care 360 AI workspace */
+/* ChatGPT-inspired Campus Care AI workspace */
 .chatgpt-shell{min-height:calc(100vh - 160px);height:calc(100vh - 160px);max-height:980px;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #e9e2d8;border-radius:24px;overflow:hidden;box-shadow:0 18px 55px rgba(30,20,18,.07);margin-top:-12px}
 .chatgpt-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #eee7df;background:rgba(255,253,249,.96)}
 .chatgpt-title-wrap{display:flex;align-items:center;gap:12px}.chatgpt-mark,.chatgpt-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,#a61e2d,#401016);color:#fff;font-size:20px;box-shadow:0 6px 18px rgba(126,25,39,.2)}
@@ -335,9 +336,8 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 .logo.logo-mark{position:relative;overflow:hidden;gap:0;width:48px;height:48px;border-radius:16px;background:linear-gradient(145deg,#c82b3e 0%,#8e1728 55%,#3a1118 100%);box-shadow:0 12px 28px rgba(142,23,40,.28);border:1px solid rgba(255,255,255,.32);isolation:isolate}
 .logo.logo-mark:before{content:"";position:absolute;inset:5px;border:1px solid rgba(255,255,255,.24);border-radius:12px;transform:rotate(-8deg);z-index:-1}
 .logo.logo-mark:after{content:"";position:absolute;width:23px;height:23px;border:2px solid rgba(255,255,255,.24);border-radius:50%;right:-8px;top:-7px}
-.logo.logo-mark{display:flex;align-items:center;justify-content:center;gap:0}
-.logo-c{font-size:22px!important;font-weight:950;letter-spacing:-1.5px!important;line-height:1;color:#E8D29A}
-.logo-degree{font-size:9px;font-weight:950;letter-spacing:-.2px;color:#E8D29A;align-self:center;margin:0 0 0 -1px;white-space:nowrap}
+.logo-c{font-size:26px!important;font-weight:950;letter-spacing:-2px!important;line-height:1;color:#fff}
+.logo-degree{font-size:9px;font-weight:950;letter-spacing:-.2px;color:#ffe7d8;align-self:flex-end;margin:0 0 11px -1px}
 .chatgpt-shell{border-radius:28px;box-shadow:0 24px 70px rgba(51,24,24,.09);border-color:#e5d7cb}
 .chatgpt-header{background:linear-gradient(110deg,#fffdf9,#fbf1e9)}
 .chatgpt-mark,.chatgpt-avatar,.welcome-orb{background:linear-gradient(145deg,#cf3547,#741421 72%,#241417);box-shadow:0 10px 25px rgba(142,23,40,.23)}
@@ -373,14 +373,14 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 .password-toggle{position:absolute;right:9px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#941b2b;font-size:12px;font-weight:850;padding:7px 5px;border-radius:7px;cursor:pointer;z-index:2}
 .password-toggle:hover{background:#f8e8e5}
 .password-toggle:focus-visible{outline:2px solid #941b2b;outline-offset:2px}
-/* Use the exact user-provided Campus Care 360 logo asset */
-.brand-logo-img{display:block;width:48px;height:48px;flex:0 0 48px;object-fit:contain;border-radius:14px}
-.auth-brand .brand-logo-img{width:48px;height:48px;flex-basis:48px}
+/* Exact uploaded Campus Care logo image; existing page backgrounds are unchanged. */
+.uploaded-campus-logo.logo.logo-mark{display:block;flex:0 0 48px;width:48px;height:48px;min-width:48px;object-fit:contain;padding:0;margin:0;border:0;border-radius:12px;background:transparent;box-shadow:none;overflow:visible;isolation:auto}
+.uploaded-campus-logo.logo.logo-mark:before,.uploaded-campus-logo.logo.logo-mark:after{content:none;display:none}
 </style></head><body>
-{% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><img class="brand-logo-img" src="{{ url_for('static', filename='campus-care-360-logo.png') }}" alt="Campus Care 360 logo"><div><h2>Campus Care 360</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
+{% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><img class="logo logo-mark uploaded-campus-logo" src="{{ url_for('static', filename='campus-care-360-logo.png', v='20261011-2') }}" alt="Campus Care 360 logo"><div><h2>Campus Care</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
 {% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">👷</span>Workers</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a><a href="{{url_for('admin_password_resets')}}" class="{{'active' if request.endpoint=='admin_password_resets' else ''}}"><span class="nav-icon">🔐</span>Password Requests</a>
-{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE 360'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
+{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('ai_assistant')}}" class="{{'active' if request.endpoint=='ai_assistant' else ''}}"><span class="nav-icon">🤖</span>AI Assistant</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('campus_map')}}"><span class="nav-icon">⌖</span>Campus Map</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
 <script>
 (function(){
   function addPasswordToggles(){
@@ -412,7 +412,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 </script>
 </body></html>'''
 
-def render_page(body,title="Campus Care 360",eyebrow="CAMPUS CARE 360"):
+def render_page(body,title="Campus Care",eyebrow="CAMPUS CARE"):
     return render_template_string(SHELL,body=body,title=title,eyebrow=eyebrow)
 
 def require(role):
@@ -421,7 +421,7 @@ def require(role):
 def ai_reply(message):
     m = (message or "").lower().strip()
     if not m:
-        return "Hi! I’m Campus Care 360 AI. Ask about complaints, campus notices, lost & found, the campus map, login, or support."
+        return "Hi! I’m Campus Care AI. Ask about complaints, campus notices, lost & found, the campus map, login, or support."
     if any(x in m for x in ["lost", "found item", "lost and found"]):
         return "Open Lost & Found from the menu. You can report an item you lost or found, browse open listings, and send a claim request without exposing another student's contact details."
     if any(x in m for x in ["notice", "announcement", "holiday", "event"]):
@@ -457,30 +457,17 @@ def ai_reply(message):
     if "emergency" in m or "sos" in m or "ambulance" in m or "fire" in m:
         return "Open Emergency & SOS for campus safety information. If there is immediate danger in India, call 112. The app does not silently send an SOS alert."
     if "timetable" in m or "attendance" in m or "class" in m:
-        return "Campus Care 360's current release focuses on support workflows. Ask the administrator to publish verified timetable and attendance data before relying on these details."
+        return "Campus Care's current release focuses on support workflows. Ask the administrator to publish verified timetable and attendance data before relying on these details."
     return "I can help with complaints, notices, lost & found, campus locations, account access, workers and troubleshooting. Try asking: ‘Show my recent complaints’, ‘What are the latest notices?’, or ‘How do I report a lost item?’"
 
-LOGIN = r'''<div class="auth-card"><div class="auth-brand"><img class="brand-logo-img" src="{{ url_for('static', filename='campus-care-360-logo.png') }}" alt="Campus Care 360 logo"><div><h1>Campus Care 360</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link"><a href="{{url_for('forgot_password')}}">Forgot password?</a></div><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care 360 administration only. Use your assigned email and password.</div></div>'''
+LOGIN = r'''<div class="auth-card"><div class="auth-brand"><img class="logo logo-mark uploaded-campus-logo" src="{{ url_for('static', filename='campus-care-360-logo.png', v='20261011-2') }}" alt="Campus Care 360 logo"><div><h1>Campus Care</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link"><a href="{{url_for('forgot_password')}}">Forgot password?</a></div><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care administration only. Use your assigned email and password.</div></div>'''
 
-REGISTER = r'''<div class="auth-card"><div class="auth-brand"><img class="brand-logo-img" src="{{ url_for('static', filename='campus-care-360-logo.png') }}" alt="Campus Care 360 logo"><div><h1>Campus Care 360</h1><span>Create your student support account</span></div></div><h2>Join Campus Care 360.</h2><p>Your registration details will be visible to authorized admins for support management.</p><form method="POST"><div><label>Full name *</label><input name="name" required placeholder="Your full name"></div><div><label>Email *</label><input type="email" name="email" required placeholder="yourname@campus.360"></div><div><label>Mobile number *</label><input name="mobile" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit mobile number"></div><div class="form-grid"><div><label>Student ID</label><input name="student_id" placeholder="CC2026002"></div><div><label>Hostel / Room</label><input name="room" placeholder="B-204"></div><div><label>Department</label><input name="department" placeholder="CSE"></div><div><label>Year</label><select name="year"><option value="">Select year</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option></select></div></div><div><label>Password *</label><input type="password" name="password" required placeholder="Create a password"></div><button class="btn btn-blue" style="justify-content:center" type="submit">Create account →</button></form><div class="auth-link">Already registered? <a href="{{url_for('login')}}">Sign in</a></div></div>'''
+REGISTER = r'''<div class="auth-card"><div class="auth-brand"><img class="logo logo-mark uploaded-campus-logo" src="{{ url_for('static', filename='campus-care-360-logo.png', v='20261011-2') }}" alt="Campus Care 360 logo"><div><h1>Campus Care</h1><span>Create your student support account</span></div></div><h2>Join Campus Care.</h2><p>Your registration details will be visible to authorized admins for support management.</p><form method="POST"><div><label>Full name *</label><input name="name" required placeholder="Your full name"></div><div><label>Email *</label><input type="email" name="email" required placeholder="yourname@campus.360"></div><div><label>Mobile number *</label><input name="mobile" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit mobile number"></div><div class="form-grid"><div><label>Student ID</label><input name="student_id" placeholder="CC2026002"></div><div><label>Hostel / Room</label><input name="room" placeholder="B-204"></div><div><label>Department</label><input name="department" placeholder="CSE"></div><div><label>Year</label><select name="year"><option value="">Select year</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option></select></div></div><div><label>Password *</label><input type="password" name="password" required placeholder="Create a password"></div><button class="btn btn-blue" style="justify-content:center" type="submit">Create account →</button></form><div class="auth-link">Already registered? <a href="{{url_for('login')}}">Sign in</a></div></div>'''
 
 @app.route('/')
 def home():
-    # Require an authenticated account before opening any dashboard.
-    if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
-
-    role = session.get('role')
-    if role == 'worker':
-        return redirect(url_for('worker_dashboard'))
-    if role == 'admin':
-        return redirect(url_for('admin_dashboard'))
-    if role == 'student':
-        return redirect(url_for('student_dashboard'))
-
-    # Unknown or incomplete session: clear it and require sign-in again.
-    session.clear()
-    return redirect(url_for('login'))
+    if not session.get('user_id') and not session.get('worker_id'): return redirect(url_for('login'))
+    return redirect(url_for('admin_dashboard' if session.get('role')=='admin' else ('worker_dashboard' if session.get('role')=='worker' else 'student_dashboard')))
 
 @app.route('/login',methods=['GET','POST'])
 def login():
@@ -534,7 +521,7 @@ def forgot_password():
         con.close()
         flash('Your password reset request has been sent to the administrator for approval. Your password will not change until it is approved.', 'success')
         return redirect(url_for('login'))
-    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="brand-logo-img" src="{{ url_for('static', filename='campus-care-360-logo.png') }}" alt="Campus Care 360 logo"><div><h1>Campus Care 360</h1><span>Secure account recovery</span></div></div><h2>Reset password.</h2><p>Submit a reset request. An administrator must approve it before your password changes.</p><form method="POST"><div><label>Registered campus email</label><input type="email" name="email" required placeholder="you@campus.360" pattern="[^@\s]+@campus\.360"></div><div><label>New password</label><input type="password" name="new_password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters"></div><div><label>Confirm new password</label><input type="password" name="confirm_password" minlength="8" required autocomplete="new-password" placeholder="Re-enter new password"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Send approval request →</button></form><div class="demo">Your new password remains pending until the Campus Care 360 administrator verifies and approves this request.</div><div class="auth-link"><a href="{{url_for('login')}}">← Back to login</a></div></div>''')
+    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="logo logo-mark uploaded-campus-logo" src="{{ url_for('static', filename='campus-care-360-logo.png', v='20261011-2') }}" alt="Campus Care 360 logo"><div><h1>Campus Care</h1><span>Secure account recovery</span></div></div><h2>Reset password.</h2><p>Submit a reset request. An administrator must approve it before your password changes.</p><form method="POST"><div><label>Registered campus email</label><input type="email" name="email" required placeholder="you@campus.360" pattern="[^@\s]+@campus\.360"></div><div><label>New password</label><input type="password" name="new_password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters"></div><div><label>Confirm new password</label><input type="password" name="confirm_password" minlength="8" required autocomplete="new-password" placeholder="Re-enter new password"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Send approval request →</button></form><div class="demo">Your new password remains pending until the Campus Care administrator verifies and approves this request.</div><div class="auth-link"><a href="{{url_for('login')}}">← Back to login</a></div></div>''')
     return render_page(body, 'Forgot Password', 'ACCOUNT RECOVERY')
 
 @app.route('/admin/password-resets', methods=['GET', 'POST'])
@@ -583,7 +570,7 @@ def admin_password_resets():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     # Student accounts are created by administrators only.
-    flash('Student accounts are issued by Campus Care 360 administration. Please contact your administrator.', 'error')
+    flash('Student accounts are issued by Campus Care administration. Please contact your administrator.', 'error')
     return redirect(url_for('login'))
 
 @app.route('/worker/login', methods=['GET','POST'])
@@ -599,7 +586,7 @@ def worker_login():
             session.update(worker_id=worker['id'], name=worker['name'], role='worker')
             return redirect(url_for('worker_dashboard'))
         flash('Invalid worker email or password. Ask the administrator for your login.', 'error')
-    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="brand-logo-img" src="{{ url_for('static', filename='campus-care-360-logo.png') }}" alt="Campus Care 360 logo"><div><h1>Campus Care 360</h1><span>Worker operations portal</span></div></div><h2>Worker sign in.</h2><p>View assigned jobs and update their progress.</p><form method="POST"><div><label>Work email</label><input type="email" name="email" required placeholder="worker@campus.360"></div><div><label>Password</label><input type="password" name="password" required placeholder="Password issued by admin"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Enter worker portal →</button></form><div class="auth-link"><a href="{{url_for('login')}}">← Student / Admin login</a></div><div class="demo">Worker accounts can only be created by an authorized administrator.</div></div>''')
+    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="logo logo-mark uploaded-campus-logo" src="{{ url_for('static', filename='campus-care-360-logo.png', v='20261011-2') }}" alt="Campus Care 360 logo"><div><h1>Campus Care</h1><span>Worker operations portal</span></div></div><h2>Worker sign in.</h2><p>View assigned jobs and update their progress.</p><form method="POST"><div><label>Work email</label><input type="email" name="email" required placeholder="worker@campus.360"></div><div><label>Password</label><input type="password" name="password" required placeholder="Password issued by admin"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Enter worker portal →</button></form><div class="auth-link"><a href="{{url_for('login')}}">← Student / Admin login</a></div><div class="demo">Worker accounts can only be created by an authorized administrator.</div></div>''')
     return render_page(body, 'Worker Login', 'WORKER PORTAL')
 
 @app.route('/worker')
@@ -672,69 +659,97 @@ def submit_feedback(complaint_id):
 
 
 
-@app.route('/admin')
-def admin_dashboard():
-    if not require('admin') or not session.get('user_id'):
+@app.route('/admin/export-excel')
+def admin_export_excel():
+    """Download an admin-only Excel workbook of operational data from the primary DB."""
+    if not require('admin'):
         return redirect(url_for('login'))
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        from io import BytesIO
+        from datetime import datetime
+    except ImportError:
+        return Response('Excel export requires openpyxl. Add openpyxl>=3.1,<4.0 to requirements.txt and redeploy.', status=500, mimetype='text/plain')
+
+    # Explicit allowlist prevents unrelated/system tables from being exported.
+    tables = [
+        ('Students_Accounts', "SELECT id,name,email,role,room,mobile,student_id,department,year,created_at FROM users ORDER BY id"),
+        ('Workers', "SELECT id,name,department,mobile,active,email,worker_code FROM workers ORDER BY id"),
+        ('Complaints', "SELECT id,complaint_id,user_id,category,title,description,location,priority,image,status,assigned_to,assigned_worker_id,admin_remark,created_at,updated_at FROM complaints ORDER BY id"),
+        ('Feedback', "SELECT id,complaint_id,rating,comment FROM feedback ORDER BY id"),
+        ('Notices', "SELECT id,title,body,category,priority,created_by,active,created_at FROM notices ORDER BY id"),
+        ('Notifications', "SELECT id,account_type,account_id,title,message,link,is_read,created_at FROM notifications ORDER BY id"),
+        ('Lost_Found', "SELECT id,user_id,item_type,title,description,location,item_date,category,image_path,status,created_at FROM lost_found ORDER BY id"),
+        ('Campus_Locations', "SELECT id,name,category,building,description,hours,phone,map_url,active,created_at FROM campus_locations ORDER BY id"),
+        ('AI_Chat_History', "SELECT id,account_type,account_id,role,message,created_at FROM ai_chat_messages ORDER BY id"),
+        ('Password_Reset_Requests', "SELECT id,account_type,account_id,email,status,created_at,reviewed_at FROM password_reset_requests ORDER BY id"),
+    ]
+    wb = Workbook()
+    summary = wb.active
+    summary.title = 'Export_Info'
+    summary.append(['Campus Care 360 - Admin Data Export'])
+    summary.append(['Generated at (UTC)', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')])
+    summary.append(['Source', 'Configured application database (Neon when DATABASE_URL is configured)'])
+    summary.append(['Security', 'Password fields and password hashes are intentionally excluded.'])
+    summary.append([])
+    summary.append(['Worksheet', 'Records exported'])
 
     con = get_db()
-    total = con.execute('SELECT COUNT(*) AS n FROM complaints').fetchone()['n']
-    submitted = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status='Submitted'").fetchone()['n']
-    active = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Assigned','In Progress')").fetchone()['n']
-    resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
-    complaints = con.execute('''
-        SELECT c.*, u.name AS student_name, u.room,
-               w.name AS worker_name
-        FROM complaints c
-        JOIN users u ON u.id = c.user_id
-        LEFT JOIN workers w ON w.id = c.assigned_worker_id
-        ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END,
-                 c.created_at DESC
-        LIMIT 100
-    ''').fetchall()
-    workers = con.execute('SELECT id, name, department, mobile FROM workers WHERE active=1 ORDER BY name').fetchall()
+    try:
+        for sheet_name, sql in tables:
+            ws = wb.create_sheet(sheet_name[:31])
+            cur = con.execute(sql)
+            headers = [d[0] for d in cur.description] if cur.description else []
+            ws.append(headers)
+            count = 0
+            for row in cur.fetchall():
+                values = [row[h] for h in headers]
+                # Avoid Excel formula injection from user-submitted text.
+                values = [("'" + v if isinstance(v, str) and v[:1] in ('=', '+', '-', '@') else v) for v in values]
+                ws.append(values)
+                count += 1
+            summary.append([sheet_name, count])
+            ws.freeze_panes = 'A2'
+            ws.auto_filter.ref = ws.dimensions
+            for cell in ws[1]:
+                cell.font = Font(bold=True, color='FFFFFF')
+                cell.fill = PatternFill('solid', fgColor='152742')
+                cell.alignment = Alignment(wrap_text=True, vertical='top')
+            for col_idx, cells in enumerate(ws.columns, start=1):
+                max_len = min(max((len(str(c.value)) if c.value is not None else 0 for c in list(cells)[:150]), default=10), 48)
+                ws.column_dimensions[get_column_letter(col_idx)].width = max(12, max_len + 2)
+        for cell in summary[1]:
+            cell.font = Font(bold=True, size=14, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='152742')
+        for cell in summary[6]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='152742')
+        summary.column_dimensions['A'].width = 36
+        summary.column_dimensions['B'].width = 78
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response.headers['Content-Disposition'] = 'attachment; filename="Campus360_Admin_Data.xlsx"'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    finally:
+        con.close()
+
+
+@app.route('/admin')
+def admin_dashboard():
+    if not require('admin'): return redirect(url_for('login'))
+    q=request.args.get('q','').strip(); selected=request.args.get('status','')
+    con=get_db(); workers=con.execute('SELECT * FROM workers WHERE active=1 ORDER BY name').fetchall(); sql='''SELECT c.*,u.name,u.email,u.room,u.mobile,w.name worker_name FROM complaints c JOIN users u ON u.id=c.user_id LEFT JOIN workers w ON w.id=c.assigned_worker_id WHERE 1=1'''; params=[]
+    if q: sql+=' AND (c.complaint_id LIKE ? OR c.title LIKE ? OR c.category LIKE ? OR c.location LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)'; params += [f'%{q}%']*6
+    if selected: sql+=' AND c.status=?'; params.append(selected)
+    sql+=' ORDER BY c.created_at DESC'; cs=con.execute(sql,params).fetchall(); stats={s:con.execute('SELECT COUNT(*) n FROM complaints WHERE status=?',(s,)).fetchone()['n'] for s in STATUSES}; students=con.execute("SELECT COUNT(*) n FROM users WHERE role='student'").fetchone()['n']; emergency=con.execute("SELECT COUNT(*) n FROM complaints WHERE priority='Emergency' AND status!='Closed'").fetchone()['n']
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">OPERATIONS CENTER</div><h1>Campus support overview</h1><p>Review, assign, support students and move complaints forward.</p></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><a class="btn btn-primary" href="{{url_for('admin_export_excel')}}">↓ Export all data to Excel</a><span class="chip" style="background:#152742;color:#fff;padding:9px 12px">ADMIN MODE</span></div></div><div class="stats"><div class="stat"><div class="stat-top"><span>Total reports</span><div class="stat-icon">▦</div></div><strong>{{cs|length}}</strong></div><div class="stat"><div class="stat-top"><span>In progress</span><div class="stat-icon">◌</div></div><strong>{{stats['Assigned']+stats['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Students</span><div class="stat-icon">👨‍🎓</div></div><strong>{{students}}</strong></div><div class="stat"><div class="stat-top"><span>Emergency</span><div class="stat-icon">!</div></div><strong>{{emergency}}</strong></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Immediate danger? Contact emergency services.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Review emergency contacts and response guidance.</small></span><span class="tile-arrow">›</span></a></div><form class="toolbar"><input name="q" value="{{q}}" placeholder="Search complaint, student, mobile, location…"><select name="status"><option value="">All statuses</option>{% for s in statuses %}<option value="{{s}}" {{'selected' if selected==s else ''}}>{{s}}</option>{% endfor %}</select><button class="btn btn-blue">Filter</button></form><div class="section-title"><h3>Complaint queue</h3><span>{{cs|length}} matching reports</span></div><div class="admin-list">{% for c in cs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div><div class="admin-title">{{c['title']}}</div><div class="admin-meta">{{c['name']}} · {{c['mobile']}} · Room {{c['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="chip {{'emergency' if c['priority']=='Emergency' else 'assigned'}}">{{c['priority']}}</span></div></div><div class="admin-desc">{{c['description']}}</div><form class="admin-form" method="POST" action="{{url_for('update_complaint',id=c['id'])}}"><div><label>Status</label><select name="status">{% for s in statuses %}<option {{'selected' if c['status']==s else ''}}>{{s}}</option>{% endfor %}</select></div><div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} — {{w['department']}}</option>{% endfor %}</select></div><div><label>Admin remark</label><input name="remark" value="{{c['admin_remark']}}" placeholder="Add an update for the student"></div><button class="btn btn-primary" type="submit">Save</button></form><div style="display:flex;justify-content:flex-end;gap:15px;font-size:11px;margin-top:12px;color:#60708b">{% if c['image'] %}<a href="{{url_for('uploaded_file',filename=c['image'])}}" target="_blank">View photo ↗</a>{% endif %}<a href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}">Open details →</a></div></div>{% else %}<div class="empty">No complaints match your filters.</div>{% endfor %}</div>''',cs=cs,stats=stats,students=students,emergency=emergency,q=q,selected=selected,workers=workers)
     con.close()
-
-    body = render_template_string(r'''<div class="page-head">
-      <div><div class="eyebrow">ADMINISTRATION</div><h1>Admin Dashboard</h1>
-      <p>Review campus complaints, assign workers and track resolutions.</p></div>
-      <span class="chip emergency">ADMIN PORTAL</span>
-    </div>
-    <div class="stats">
-      <div class="stat"><div class="stat-top"><span>Total complaints</span><div class="stat-icon">▦</div></div><strong>{{total}}</strong></div>
-      <div class="stat"><div class="stat-top"><span>Awaiting review</span><div class="stat-icon">↗</div></div><strong>{{submitted}}</strong></div>
-      <div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{active}}</strong></div>
-      <div class="stat"><div class="stat-top"><span>Resolved / closed</span><div class="stat-icon">✓</div></div><strong>{{resolved}}</strong></div>
-    </div>
-    <div class="card" style="margin-bottom:24px;border-color:#e5d5ad;background:linear-gradient(135deg,#fffdf7,#fff9e9)">
-      <div class="section-title"><h3>📊 Import accounts from Excel</h3><span>Admin only</span></div>
-      <p class="muted">Download the Excel template to prepare student and worker account details in the correct format. The file-upload control has been removed from this dashboard.</p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <a class="btn btn-light" href="{{url_for('admin_import_template')}}">⬇ Download Excel template</a>
-      </div>
-      <p class="muted" style="margin-bottom:0">The workbook includes <b>Students</b> and <b>Workers</b> sheets with the required column headings.</p>
-    </div>
-    <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
-    <div class="admin-list">
-    {% for c in complaints %}
-      <article class="admin-card">
-        <div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div>
-        <div class="admin-title">{{c['title']}}</div><div class="admin-meta">Reported by {{c['student_name']}} · Room {{c['room'] or '—'}} · {{c['created_at']}}</div></div>
-        <div class="admin-tags"><span class="chip {{'emergency' if c['priority']=='Emergency' else ('progress' if c['priority']=='High' else 'submitted')}}">{{c['priority']}}</span>
-        <span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}.get(c['status'],'submitted') }}">{{c['status']}}</span></div></div>
-        <p class="admin-desc">{{c['description']}}</p>
-        <form class="admin-form" method="POST" action="{{url_for('update_complaint', id=c['id'])}}">
-          <div><label>Status</label><select name="status">{% for st in statuses %}<option value="{{st}}" {{'selected' if c['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
-          <div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} · {{w['department']}}</option>{% endfor %}</select></div>
-          <div><label>Admin remark</label><input name="remark" value="{{c['admin_remark'] or ''}}" placeholder="Next action or resolution note"></div>
-          <button class="btn btn-primary" type="submit">Save update</button>
-        </form>
-      </article>
-    {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
-    </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
-       complaints=complaints, workers=workers, statuses=STATUSES)
-    return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
-
+    return render_page(body,'Admin Dashboard','OPERATIONS CENTER')
 
 @app.route('/admin/complaint/<int:id>',methods=['POST'])
 def update_complaint(id):
@@ -744,109 +759,6 @@ def update_complaint(id):
     if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
     if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
     flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/import-template.xlsx')
-def admin_import_template():
-    if not require('admin'):
-        return redirect(url_for('login'))
-    try:
-        from openpyxl import Workbook
-    except ImportError:
-        flash('Excel support is not installed. Add openpyxl to requirements.txt.', 'error')
-        return redirect(url_for('admin_dashboard'))
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Students'
-    ws.append(['name','email','password','mobile','room','department','year','student_id'])
-    ws.append(['Example Student','student1@campus.360','ChangeMe123','9876543210','B-204','CSE','1st Year','CC2026001'])
-    ww = wb.create_sheet('Workers')
-    ww.append(['name','email','password','mobile','department','worker_code'])
-    ww.append(['Example Worker','worker1@campus.360','ChangeMe123','9876543211','Electrical','WKEXAMPLE'])
-    for sheet in wb.worksheets:
-        sheet.freeze_panes='A2'
-        sheet.auto_filter.ref=sheet.dimensions
-        for col in sheet.columns:
-            letter=col[0].column_letter
-            sheet.column_dimensions[letter].width=min(max(max(len(str(c.value or '')) for c in col)+3,14),30)
-    output=io.BytesIO(); wb.save(output); output.seek(0)
-    return Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':'attachment; filename=Campus_Care_360_Import_Template.xlsx'})
-
-@app.route('/admin/import-data', methods=['POST'])
-def admin_import_data():
-    if not require('admin') or not session.get('user_id'):
-        return redirect(url_for('login'))
-    uploaded=request.files.get('import_file')
-    if not uploaded or not uploaded.filename:
-        flash('Choose an Excel (.xlsx) or CSV file first.', 'error')
-        return redirect(url_for('admin_dashboard'))
-    filename=uploaded.filename.lower()
-    try:
-        if filename.endswith('.xlsx'):
-            from openpyxl import load_workbook
-            wb=load_workbook(uploaded, read_only=True, data_only=True)
-            datasets={}
-            for sheet_name in ('Students','Workers'):
-                if sheet_name in wb.sheetnames:
-                    rows=wb[sheet_name].iter_rows(values_only=True)
-                    headers=next(rows, None)
-                    if headers:
-                        keys=[str(v or '').strip().lower().replace(' ','_') for v in headers]
-                        datasets[sheet_name]=[dict(zip(keys,row)) for row in rows if any(v is not None and str(v).strip() for v in row)]
-            wb.close()
-        elif filename.endswith('.csv'):
-            text_data=uploaded.stream.read().decode('utf-8-sig')
-            rows=list(csv.DictReader(io.StringIO(text_data)))
-            # CSV imports are treated as student records; use the template headers.
-            datasets={'Students':[{str(k or '').strip().lower().replace(' ','_'):v for k,v in row.items()} for row in rows]}
-        else:
-            flash('Unsupported file type. Upload .xlsx or .csv.', 'error')
-            return redirect(url_for('admin_dashboard'))
-        con=get_db(); added_students=added_workers=skipped=0; errors=[]
-        def val(row,*names):
-            for name in names:
-                value=row.get(name)
-                if value is not None and str(value).strip(): return str(value).strip()
-            return ''
-        for sheet_name, rows in datasets.items():
-            for line_no,row in enumerate(rows, start=2):
-                name=val(row,'name','full_name'); email=val(row,'email','campus_email').lower(); password=val(row,'password','temporary_password'); mobile=re.sub(r'\D','',val(row,'mobile','phone'))
-                if not name or not valid_campus_email(email) or len(password)<8:
-                    skipped+=1
-                    if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: name, valid @campus.360 email, and password (8+ characters) are required.')
-                    continue
-                exists=con.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone() if sheet_name=='Students' else con.execute('SELECT 1 FROM workers WHERE email=?',(email,)).fetchone()
-                if exists:
-                    skipped+=1
-                    if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: email already exists; skipped.')
-                    continue
-                if sheet_name=='Students':
-                    next_id=con.execute("SELECT COALESCE(MAX(id),0)+1 n FROM users").fetchone()['n']
-                    student_id=val(row,'student_id','studentid') or ('CC'+str(2026000+next_id))
-                    con.execute('INSERT INTO users(name,email,password,role,room,mobile,student_id,department,year) VALUES(?,?,?,?,?,?,?,?,?)',(name,email,generate_password_hash(password),'student',val(row,'room','hostel_room'),mobile,val(row,'student_id','studentid') or student_id,val(row,'department','dept'),val(row,'year','academic_year')))
-                    added_students+=1
-                elif sheet_name=='Workers':
-                    department=val(row,'department','dept')
-                    if not department or len(mobile)!=10:
-                        skipped+=1
-                        if len(errors)<8: errors.append(f'{sheet_name} row {line_no}: department and 10-digit mobile are required.')
-                        continue
-                    code=val(row,'worker_code','worker_id') or ('WK'+uuid.uuid4().hex[:6].upper())
-                    con.execute('INSERT INTO workers(name,department,mobile,active,email,password,worker_code) VALUES(?,?,?,?,?,?,?)',(name,department,mobile,1,email,generate_password_hash(password),code))
-                    added_workers+=1
-                else:
-                    skipped+=1
-        con.commit(); con.close()
-        summary=f'Import complete: {added_students} student(s), {added_workers} worker(s) added; {skipped} row(s) skipped.'
-        flash(summary,'success' if not skipped else 'error')
-        for issue in errors:
-            flash(issue,'error')
-    except Exception as exc:
-        logging.exception('Admin Excel import failed')
-        try: con.rollback(); con.close()
-        except Exception: pass
-        flash('Import failed. Check the workbook sheet names and column headers, then try again.','error')
-    return redirect(url_for('admin_dashboard'))
-
 
 @app.route('/admin/students', methods=['GET','POST'])
 def admin_students():
@@ -902,9 +814,9 @@ def contacts():
 
 @app.route('/help')
 def help_support():
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">CAMPUS CARE CONCIERGE</div><h1>Help, without the hassle.</h1><p>Find a quick fix, reach the right team, or ask the Campus Care 360 assistant.</p></div></div>
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">CAMPUS CARE CONCIERGE</div><h1>Help, without the hassle.</h1><p>Find a quick fix, reach the right team, or ask the Campus Care assistant.</p></div></div>
     <section class="help-hero"><div class="hero-kicker">SUPPORT CENTRE · HERE FOR YOU</div><h2>Let’s get things sorted.</h2><p>Whether you’re reporting a campus issue, checking a complaint, or having trouble signing in, start with one of these quick routes. For immediate danger, use Emergency / SOS from the app menu.</p></section>
-    <div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('ai_assistant')}}"><span class="help-quick-icon">✦</span><span><b>Ask Campus Care 360 AI</b><small>Get guided help in seconds</small></span></a><a class="help-quicklink" href="{{url_for('contacts')}}"><span class="help-quick-icon">☎</span><span><b>Contact the right team</b><small>Campus, hostel and support contacts</small></span></a><a class="help-quicklink" href="{{url_for('emergency_help')}}"><span class="help-quick-icon">＋</span><span><b>Emergency help</b><small>Urgent safety guidance and numbers</small></span></a></div>
+    <div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('ai_assistant')}}"><span class="help-quick-icon">✦</span><span><b>Ask Campus Care AI</b><small>Get guided help in seconds</small></span></a><a class="help-quicklink" href="{{url_for('contacts')}}"><span class="help-quick-icon">☎</span><span><b>Contact the right team</b><small>Campus, hostel and support contacts</small></span></a><a class="help-quicklink" href="{{url_for('emergency_help')}}"><span class="help-quick-icon">＋</span><span><b>Emergency help</b><small>Urgent safety guidance and numbers</small></span></a></div>
     <div class="section-title"><h3>Popular fixes</h3><span>Try these first</span></div><div class="help-grid">
     <div class="help-card"><div class="help-card-icon">🔐</div><h3>Can’t sign in?</h3><p class="muted">Check that you’re using the exact email and password issued by the administrator. Use Forgot password to request a reset; an admin must approve it.</p></div>
     <div class="help-card"><div class="help-card-icon">📝</div><h3>Can’t submit a complaint?</h3><p class="muted">Complete the title, category, location and description. If you attach a photo, use PNG, JPG, JPEG, GIF or WEBP and try a smaller image if upload fails.</p></div>
@@ -940,11 +852,11 @@ def ai_assistant():
     con.close()
     history = [{'role': r['role'], 'text': r['message']} for r in reversed(rows)]
     body = render_template_string(r'''<div class="chatgpt-shell">
-      <header class="chatgpt-header"><div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care 360 AI</h1><p>Campus-aware support assistant · Chat history saved to your account</p></div></div><form method="POST"><button class="chatgpt-clear" type="submit" name="action" value="clear">＋ <span>New chat</span></button></form></header>
+      <header class="chatgpt-header"><div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care AI</h1><p>Campus-aware support assistant · Chat history saved to your account</p></div></div><form method="POST"><button class="chatgpt-clear" type="submit" name="action" value="clear">＋ <span>New chat</span></button></form></header>
       <main class="chatgpt-conversation" id="chatgptConversation">
-        {% if history %}{% for item in history %}<div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">{% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}<div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care 360</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div></div>{% endfor %}
+        {% if history %}{% for item in history %}<div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">{% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}<div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div></div>{% endfor %}
         {% else %}<section class="chatgpt-welcome"><div class="welcome-orb">✦</div><h2>How can I help you today?</h2><p>Ask about your complaints, campus notices, lost items, locations or account access.</p><div class="chatgpt-suggestions"><button type="button" onclick="useSuggestion('Show my recent complaints')"><span>⌁</span><b>My complaints</b><small>Check recent status updates</small></button><button type="button" onclick="useSuggestion('What are the latest campus notices?')"><span>▤</span><b>Campus notices</b><small>See recent announcements</small></button><button type="button" onclick="useSuggestion('How do I report a lost item?')"><span>⌕</span><b>Lost & Found</b><small>Report or claim an item</small></button><button type="button" onclick="useSuggestion('How can I reset my password?')"><span>🔐</span><b>Account help</b><small>Request an admin-approved reset</small></button></div></section>{% endif %}
-      </main><div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" maxlength="1500" required placeholder="Message Campus Care 360…" aria-label="Message Campus Care 360"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message">↑</button></form><p class="chatgpt-disclaimer">Answers use available campus data and may be incomplete. For immediate danger in India, call <a href="tel:112">112</a>.</p></div></div>
+      </main><div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" maxlength="1500" required placeholder="Message Campus Care…" aria-label="Message Campus Care"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message">↑</button></form><p class="chatgpt-disclaimer">Answers use available campus data and may be incomplete. For immediate danger in India, call <a href="tel:112">112</a>.</p></div></div>
     <script>const chatInput=document.getElementById('chatgptInput');function useSuggestion(text){chatInput.value=text;chatInput.focus();}chatInput.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,150)+'px';});chatInput.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('chatgptForm').requestSubmit();}});const conversation=document.getElementById('chatgptConversation');conversation.scrollTop=conversation.scrollHeight;</script>''', history=history)
     return render_page(body, 'AI Assistant', 'AI SUPPORT')
 
@@ -955,7 +867,7 @@ def student_profile():
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">YOUR CAMPUS IDENTITY</div><h1>My profile</h1><p>Your details, campus identity and support activity in one place.</p></div><a class="btn btn-primary" href="{{url_for('student_dashboard')}}">← Dashboard</a></div>
     <section class="profile-hero"><div class="profile-avatar">{{u['name'][0]|upper}}</div><div><div class="hero-kicker">CAMPUS CARE MEMBER</div><h1>{{u['name']}}</h1><p>{{u['email']}}</p><span class="profile-role">✦ VERIFIED STUDENT PROFILE</span></div></section>
     <div class="profile-grid"><div class="card profile-info-card"><h3>Personal & academic details</h3><div class="profile-details"><div class="profile-detail"><span>Student ID</span><strong>{{u['student_id'] or 'Not assigned'}}</strong></div><div class="profile-detail"><span>Mobile number</span><strong>{{u['mobile'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Department</span><strong>{{u['department'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Academic year</span><strong>{{u['year'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Hostel / room</span><strong>{{u['room'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Account role</span><strong>Student</strong></div></div><p class="muted" style="margin:17px 0 0">Need to correct your registered details? Contact the campus administrator.</p></div>
-    <div><div class="section-title"><h3>Your support activity</h3><span>Live overview</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{count}}</strong><small>Reports submitted</small></div><div class="profile-stat-card"><small>Resolved</small><strong>{{resolved}}</strong><small>Completed cases</small></div><div class="profile-stat-card" style="grid-column:1/-1"><small>In progress</small><strong>{{active}}</strong><small>Reports being handled by campus teams</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('new_complaint')}}"><span>＋</span>Report a new issue <em>›</em></a><a class="profile-shortcut" href="{{url_for('ai_assistant')}}"><span>✦</span>Ask Campus Care 360 AI <em>›</em></a><a class="profile-shortcut" href="{{url_for('help_support')}}"><span>?</span>Help & support <em>›</em></a></div></div></div>''',u=u,count=count,resolved=resolved,active=active)
+    <div><div class="section-title"><h3>Your support activity</h3><span>Live overview</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{count}}</strong><small>Reports submitted</small></div><div class="profile-stat-card"><small>Resolved</small><strong>{{resolved}}</strong><small>Completed cases</small></div><div class="profile-stat-card" style="grid-column:1/-1"><small>In progress</small><strong>{{active}}</strong><small>Reports being handled by campus teams</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('new_complaint')}}"><span>＋</span>Report a new issue <em>›</em></a><a class="profile-shortcut" href="{{url_for('ai_assistant')}}"><span>✦</span>Ask Campus Care AI <em>›</em></a><a class="profile-shortcut" href="{{url_for('help_support')}}"><span>?</span>Help & support <em>›</em></a></div></div></div>''',u=u,count=count,resolved=resolved,active=active)
     return render_page(body,'My Profile','MY PROFILE')
 
 @app.route('/admin/profile')
