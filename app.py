@@ -408,7 +408,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 </script>
 </body></html>'''
 
-def render_page(body,title="Campus Care",eyebrow="CAMPUS CARE"):
+def render_page(body,title="Campus Care 360",eyebrow="CAMPUS CARE 360"):
     return render_template_string(SHELL,body=body,title=title,eyebrow=eyebrow)
 
 def require(role):
