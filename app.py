@@ -705,15 +705,11 @@ def admin_dashboard():
     </div>
     <div class="card" style="margin-bottom:24px;border-color:#e5d5ad;background:linear-gradient(135deg,#fffdf7,#fff9e9)">
       <div class="section-title"><h3>📊 Import accounts from Excel</h3><span>Admin only</span></div>
-      <p class="muted">Upload an .xlsx or .csv file to create student and worker accounts in bulk. Existing emails are skipped. Passwords in the spreadsheet must be at least 8 characters and are stored as password hashes.</p>
+      <p class="muted">Download the Excel template to prepare student and worker account details in the correct format. The file-upload control has been removed from this dashboard.</p>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <a class="btn btn-light" href="{{url_for('admin_import_template')}}">⬇ Download Excel template</a>
-        <form method="POST" action="{{url_for('admin_import_data')}}" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1;min-width:260px">
-          <input type="file" name="import_file" accept=".xlsx,.csv" required style="max-width:340px;background:#fff">
-          <button class="btn btn-blue" type="submit">Import data →</button>
-        </form>
       </div>
-      <p class="muted" style="margin-bottom:0">Excel workbook: use <b>Students</b> and/or <b>Workers</b> sheets. Do not upload confidential data you do not want to import.</p>
+      <p class="muted" style="margin-bottom:0">The workbook includes <b>Students</b> and <b>Workers</b> sheets with the required column headings.</p>
     </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
