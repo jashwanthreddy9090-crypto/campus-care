@@ -462,8 +462,21 @@ REGISTER = r'''<div class="auth-card"><div class="auth-brand"><div class="logo l
 
 @app.route('/')
 def home():
-    if not session.get('user_id') and not session.get('worker_id'): return redirect(url_for('login'))
-    return redirect(url_for('admin_dashboard' if session.get('role')=='admin' else ('worker_dashboard' if session.get('role')=='worker' else 'student_dashboard')))
+    # Require an authenticated account before opening any dashboard.
+    if not session.get('user_id') and not session.get('worker_id'):
+        return redirect(url_for('login'))
+
+    role = session.get('role')
+    if role == 'worker':
+        return redirect(url_for('worker_dashboard'))
+    if role == 'admin':
+        return redirect(url_for('admin_dashboard'))
+    if role == 'student':
+        return redirect(url_for('student_dashboard'))
+
+    # Unknown or incomplete session: clear it and require sign-in again.
+    session.clear()
+    return redirect(url_for('login'))
 
 @app.route('/login',methods=['GET','POST'])
 def login():
@@ -653,6 +666,62 @@ def submit_feedback(complaint_id):
     if c: con.execute('INSERT INTO feedback(complaint_id,rating,comment) VALUES(?,?,?)',(c['id'],rating,request.form.get('comment','').strip())); con.execute("UPDATE complaints SET status='Closed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(c['id'],)); con.commit()
     con.close(); flash('Thank you for your feedback. The complaint is now closed.','success'); return redirect(url_for('complaint_status',complaint_id=complaint_id))
 
+
+
+@app.route('/admin')
+def admin_dashboard():
+    if not require('admin') or not session.get('user_id'):
+        return redirect(url_for('login'))
+
+    con = get_db()
+    total = con.execute('SELECT COUNT(*) AS n FROM complaints').fetchone()['n']
+    submitted = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status='Submitted'").fetchone()['n']
+    active = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Assigned','In Progress')").fetchone()['n']
+    resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
+    complaints = con.execute('''
+        SELECT c.*, u.name AS student_name, u.room,
+               w.name AS worker_name
+        FROM complaints c
+        JOIN users u ON u.id = c.user_id
+        LEFT JOIN workers w ON w.id = c.assigned_worker_id
+        ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END,
+                 c.created_at DESC
+        LIMIT 100
+    ''').fetchall()
+    workers = con.execute('SELECT id, name, department, mobile FROM workers WHERE active=1 ORDER BY name').fetchall()
+    con.close()
+
+    body = render_template_string(r'''<div class="page-head">
+      <div><div class="eyebrow">ADMINISTRATION</div><h1>Admin Dashboard</h1>
+      <p>Review campus complaints, assign workers and track resolutions.</p></div>
+      <span class="chip emergency">ADMIN PORTAL</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-top"><span>Total complaints</span><div class="stat-icon">▦</div></div><strong>{{total}}</strong></div>
+      <div class="stat"><div class="stat-top"><span>Awaiting review</span><div class="stat-icon">↗</div></div><strong>{{submitted}}</strong></div>
+      <div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{active}}</strong></div>
+      <div class="stat"><div class="stat-top"><span>Resolved / closed</span><div class="stat-icon">✓</div></div><strong>{{resolved}}</strong></div>
+    </div>
+    <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
+    <div class="admin-list">
+    {% for c in complaints %}
+      <article class="admin-card">
+        <div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div>
+        <div class="admin-title">{{c['title']}}</div><div class="admin-meta">Reported by {{c['student_name']}} · Room {{c['room'] or '—'}} · {{c['created_at']}}</div></div>
+        <div class="admin-tags"><span class="chip {{'emergency' if c['priority']=='Emergency' else ('progress' if c['priority']=='High' else 'submitted')}}">{{c['priority']}}</span>
+        <span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}.get(c['status'],'submitted') }}">{{c['status']}}</span></div></div>
+        <p class="admin-desc">{{c['description']}}</p>
+        <form class="admin-form" method="POST" action="{{url_for('update_complaint', id=c['id'])}}">
+          <div><label>Status</label><select name="status">{% for st in statuses %}<option value="{{st}}" {{'selected' if c['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
+          <div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} · {{w['department']}}</option>{% endfor %}</select></div>
+          <div><label>Admin remark</label><input name="remark" value="{{c['admin_remark'] or ''}}" placeholder="Next action or resolution note"></div>
+          <button class="btn btn-primary" type="submit">Save update</button>
+        </form>
+      </article>
+    {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
+    </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
+       complaints=complaints, workers=workers, statuses=STATUSES)
+    return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
 
 
 @app.route('/admin/complaint/<int:id>',methods=['POST'])
