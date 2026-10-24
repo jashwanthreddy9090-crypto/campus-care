@@ -928,13 +928,36 @@ def admin_export_data():
     for row in lost_found:
         lf.append([row[key] for key in ('id','user_id','student_name','student_email','student_id','room','item_type','title','description','location','item_date','category','status','has_photo','created_at')])
 
+    # Open the workbook directly on Complaints so admins immediately see the exported reports.
+    # Keep every registered complaint, including records older than the dashboard's 100-row display.
+    wb._sheets = [cw, ws, ww, lf]
+    wb.active = 0
+    cw.sheet_view.showGridLines = True
+    cw.freeze_panes = 'A2'
+    cw.auto_filter.ref = cw.dimensions
+
+    # Add a small export summary with row counts so an empty export is immediately detectable.
+    summary = wb.create_sheet('Export Summary', 0)
+    summary.append(['Campus Care 360 — Export Summary', 'Records exported'])
+    summary.append(['Login accounts', len(accounts)])
+    summary.append(['Worker accounts', len(workers)])
+    summary.append(['Registered complaints', len(complaints)])
+    summary.append(['Lost & Found registrations', len(lost_found)])
+    summary.append(['Note', 'Open the Complaints tab to view all complaint records. Passwords and password hashes are excluded.'])
+    summary.freeze_panes = 'A2'
+    summary.column_dimensions['A'].width = 38
+    summary.column_dimensions['B'].width = 90
+
     for sheet in wb.worksheets:
-        sheet.freeze_panes = 'A2'
-        sheet.auto_filter.ref = sheet.dimensions
+        sheet.freeze_panes = sheet.freeze_panes or 'A2'
+        sheet.auto_filter.ref = sheet.dimensions if sheet.max_row > 1 else 'A1'
         for col in sheet.columns:
             letter = col[0].column_letter
             max_len = max((len(str(cell.value or '')) for cell in col), default=0)
             sheet.column_dimensions[letter].width = min(max(max_len + 3, 12), 45)
+
+    # Set Complaints as the active tab even with the summary sheet present.
+    wb.active = wb.sheetnames.index('Complaints')
 
     output = io.BytesIO()
     wb.save(output)
