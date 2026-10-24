@@ -11,7 +11,7 @@ _CAMPUS_CARE_LOGO_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
 @app.route("/campus-care-logo.png")
 def campus_care_logo():
-    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 application = app  # WSGI alias for deployment platforms
 app.secret_key = os.environ.get("SECRET_KEY", "")
@@ -284,6 +284,9 @@ def initialize_database():
     CREATE INDEX IF NOT EXISTS idx_lost_found_status ON lost_found(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_ai_chat_account ON ai_chat_messages(account_type, account_id, id);
     CREATE INDEX IF NOT EXISTS idx_notices_active ON notices(active, created_at);
+    CREATE INDEX IF NOT EXISTS idx_complaints_user_created ON complaints(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_complaints_status_created ON complaints(status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_complaints_worker_status ON complaints(assigned_worker_id, status);
     """)
     # Upgrade older databases safely.
     existing = {r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()}
