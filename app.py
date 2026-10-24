@@ -826,8 +826,9 @@ def admin_dashboard():
       <p class="muted">Download the Excel template to prepare student and worker account details in the correct format. The file-upload control has been removed from this dashboard.</p>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <a class="btn btn-light" href="{{url_for('admin_import_template')}}">⬇ Download Excel template</a>
+        <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Export accounts & complaints</a>
       </div>
-      <p class="muted" style="margin-bottom:0">The workbook includes <b>Students</b> and <b>Workers</b> sheets with the required column headings.</p>
+      <p class="muted" style="margin-bottom:0">Export current account details and all complaints from the connected database. Passwords are never included in the export.</p>
     </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
@@ -859,6 +860,78 @@ def update_complaint(id):
     if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
     if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
     flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/export-data.xlsx')
+def admin_export_data():
+    if not require('admin') or not session.get('user_id'):
+        return redirect(url_for('login'))
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        flash('Excel export is unavailable. Add openpyxl to requirements.txt.', 'error')
+        return redirect(url_for('admin_dashboard'))
+
+    con = get_db()
+    try:
+        # Export account identifiers and profile details only; never export password hashes.
+        accounts = con.execute("""
+            SELECT id, name, email, role, student_id, room, mobile, department, year, created_at
+            FROM users
+            ORDER BY role, name
+        """).fetchall()
+        workers = con.execute("""
+            SELECT id, name, email, worker_code, department, mobile, active
+            FROM workers
+            ORDER BY name
+        """).fetchall()
+        complaints = con.execute("""
+            SELECT c.id, c.complaint_id, c.user_id, u.name AS student_name,
+                   u.email AS student_email, u.student_id, u.room,
+                   c.category, c.title, c.description, c.location, c.priority,
+                   c.status, c.assigned_to, w.name AS worker_name,
+                   c.admin_remark, c.created_at, c.updated_at
+            FROM complaints c
+            LEFT JOIN users u ON u.id = c.user_id
+            LEFT JOIN workers w ON w.id = c.assigned_worker_id
+            ORDER BY c.created_at DESC, c.id DESC
+        """).fetchall()
+    finally:
+        con.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Login Accounts'
+    ws.append(['Account ID', 'Name', 'Email / Login', 'Role', 'Student ID', 'Room', 'Mobile', 'Department', 'Year', 'Created At'])
+    for row in accounts:
+        ws.append([row[key] for key in ('id','name','email','role','student_id','room','mobile','department','year','created_at')])
+
+    ww = wb.create_sheet('Worker Accounts')
+    ww.append(['Worker ID', 'Name', 'Email / Login', 'Worker Code', 'Department', 'Mobile', 'Active'])
+    for row in workers:
+        ww.append([row[key] for key in ('id','name','email','worker_code','department','mobile','active')])
+
+    cw = wb.create_sheet('Complaints')
+    cw.append(['Database ID', 'Complaint ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Category', 'Title', 'Description', 'Location', 'Priority', 'Status', 'Assigned To', 'Assigned Worker', 'Admin Remark', 'Created At', 'Updated At'])
+    for row in complaints:
+        cw.append([row[key] for key in ('id','complaint_id','user_id','student_name','student_email','student_id','room','category','title','description','location','priority','status','assigned_to','worker_name','admin_remark','created_at','updated_at')])
+
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = 'A2'
+        sheet.auto_filter.ref = sheet.dimensions
+        for col in sheet.columns:
+            letter = col[0].column_letter
+            max_len = max((len(str(cell.value or '')) for cell in col), default=0)
+            sheet.column_dimensions[letter].width = min(max(max_len + 3, 12), 45)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename=Campus_Care_360_Data_Export.xlsx'}
+    )
 
 @app.route('/admin/import-template.xlsx')
 def admin_import_template():
