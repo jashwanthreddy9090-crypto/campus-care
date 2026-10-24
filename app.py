@@ -87,7 +87,7 @@ class PostgresConnection:
         statement = sql.strip()
 
         # SQLite schema-inspection compatibility used by existing app migrations.
-        match = re.match(r"PRAGMA\\s+table_info\\s*\\(\\s*([^)]+)\\s*\\)", statement, re.I)
+        match = re.match(r"PRAGMA\s+table_info\s*\(\s*([^)]+)\s*\)", statement, re.I)
         if match:
             table = match.group(1).strip().strip('"`[]')
             cur.execute(
@@ -113,7 +113,7 @@ class PostgresConnection:
             if not statement:
                 continue
             statement = re.sub(
-                r"INTEGER\\s+PRIMARY\\s+KEY\\s+AUTOINCREMENT",
+                r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
                 "SERIAL PRIMARY KEY",
                 statement,
                 flags=re.I,
