@@ -893,6 +893,16 @@ def admin_export_data():
             LEFT JOIN workers w ON w.id = c.assigned_worker_id
             ORDER BY c.created_at DESC, c.id DESC
         """).fetchall()
+        lost_found = con.execute("""
+            SELECT lf.id, lf.user_id, u.name AS student_name,
+                   u.email AS student_email, u.student_id, u.room,
+                   lf.item_type, lf.title, lf.description, lf.location,
+                   lf.item_date, lf.category, lf.status, lf.created_at,
+                   CASE WHEN COALESCE(lf.image_data, '') <> '' OR COALESCE(lf.image_path, '') <> '' THEN 'Yes' ELSE 'No' END AS has_photo
+            FROM lost_found lf
+            LEFT JOIN users u ON u.id = lf.user_id
+            ORDER BY lf.created_at DESC, lf.id DESC
+        """).fetchall()
     finally:
         con.close()
 
@@ -912,6 +922,11 @@ def admin_export_data():
     cw.append(['Database ID', 'Complaint ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Category', 'Title', 'Description', 'Location', 'Priority', 'Status', 'Assigned To', 'Assigned Worker', 'Admin Remark', 'Created At', 'Updated At'])
     for row in complaints:
         cw.append([row[key] for key in ('id','complaint_id','user_id','student_name','student_email','student_id','room','category','title','description','location','priority','status','assigned_to','worker_name','admin_remark','created_at','updated_at')])
+
+    lf = wb.create_sheet('Lost & Found')
+    lf.append(['Listing ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Type', 'Item Title', 'Description', 'Location', 'Date Lost/Found', 'Category', 'Status', 'Has Photo', 'Registered At'])
+    for row in lost_found:
+        lf.append([row[key] for key in ('id','user_id','student_name','student_email','student_id','room','item_type','title','description','location','item_date','category','status','has_photo','created_at')])
 
     for sheet in wb.worksheets:
         sheet.freeze_panes = 'A2'
