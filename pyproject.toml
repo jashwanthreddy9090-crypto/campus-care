@@ -1,1 +1,8 @@
-toml     [tool.vercel]     entrypoint = "app:app"
+
+[project]
+name = "campus-care-360"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+[tool.vercel]
+entrypoint = "app.py"
