@@ -1,10 +1,1 @@
-[project]
-name = "campus-care"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = [
-  "Flask>=3.0,<4",
-  "Werkzeug>=3.0,<4",
-  "psycopg2-binary>=2.9",
-  "openpyxl>=3.1",
-]
+toml     [tool.vercel]     entrypoint = "app:app"
