@@ -822,13 +822,10 @@ def admin_dashboard():
       <div class="stat"><div class="stat-top"><span>Resolved / closed</span><div class="stat-icon">✓</div></div><strong>{{resolved}}</strong></div>
     </div>
     <div class="card" style="margin-bottom:24px;border-color:#e5d5ad;background:linear-gradient(135deg,#fffdf7,#fff9e9)">
-      <div class="section-title"><h3>📊 Import accounts from Excel</h3><span>Admin only</span></div>
-      <p class="muted">Download the Excel template to prepare student and worker account details in the correct format. The file-upload control has been removed from this dashboard.</p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <a class="btn btn-light" href="{{url_for('admin_import_template')}}">⬇ Download Excel template</a>
-        <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Export accounts & complaints</a>
-      </div>
-      <p class="muted" style="margin-bottom:0">Export current account details and all complaints from the connected database. Passwords are never included in the export.</p>
+      <div class="section-title"><h3>📊 Admin Excel Export</h3><span>Admin only</span></div>
+      <p class="muted">Download one Excel workbook containing login accounts, worker accounts, and all complaints from the connected database.</p>
+      <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
+      <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
