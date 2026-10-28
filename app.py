@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
-import sqlite3, os, uuid, re, json, logging, base64, io, csv
+import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -87,8 +87,36 @@ CONTACTS = [
     ("Emergency Help", "Emergency", "112"),
 ]
 
+# Reuse PostgreSQL connections across warm serverless invocations instead of
+# opening a new TLS/database connection for every get_db() call.
+_POSTGRES_POOL = None
+_POSTGRES_POOL_LOCK = threading.Lock()
+
+
+def _get_postgres_pool(dsn, DictCursor):
+    global _POSTGRES_POOL
+    if _POSTGRES_POOL is None:
+        with _POSTGRES_POOL_LOCK:
+            if _POSTGRES_POOL is None:
+                from psycopg2.pool import ThreadedConnectionPool
+                # Keep the per-function-instance connection footprint bounded.
+                _POSTGRES_POOL = ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=5,
+                    dsn=dsn,
+                    cursor_factory=DictCursor,
+                    sslmode="require",
+                    connect_timeout=5,
+                    keepalives=1,
+                    keepalives_idle=30,
+                    keepalives_interval=10,
+                    keepalives_count=3,
+                )
+    return _POSTGRES_POOL
+
+
 class PostgresConnection:
-    """SQLite-compatible adapter for PostgreSQL (Neon)."""
+    """SQLite-compatible adapter using a small, thread-safe Neon connection pool."""
     def __init__(self, dsn):
         try:
             import psycopg2
@@ -108,21 +136,20 @@ class PostgresConnection:
                 "with postgresql:// or postgres://."
             )
 
-        self._conn = psycopg2.connect(
-            dsn,
-            cursor_factory=DictCursor,
-            sslmode="require",
-            connect_timeout=10,
-        )
+        self._pool = _get_postgres_pool(dsn, DictCursor)
+        self._conn = self._pool.getconn()
+        if self._conn.closed:
+            self._pool.putconn(self._conn, close=True)
+            self._conn = self._pool.getconn()
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor()
         statement = sql.strip()
 
         # SQLite schema-inspection compatibility used by existing app migrations.
-        match = re.match(r"PRAGMA\s+table_info\s*\(\s*([^)]+)\s*\)", statement, re.I)
+        match = re.match(r"PRAGMA\\s+table_info\\s*\\(\\s*([^)]+)\\s*\\)", statement, re.I)
         if match:
-            table = match.group(1).strip().strip('"`[]')
+            table = match.group(1).strip().strip('"\`[]')
             cur.execute(
                 "SELECT ordinal_position - 1 AS cid, column_name AS name, "
                 "data_type AS type, 0 AS notnull, column_default AS dflt_value, "
@@ -146,7 +173,7 @@ class PostgresConnection:
             if not statement:
                 continue
             statement = re.sub(
-                r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
+                r"INTEGER\\s+PRIMARY\\s+KEY\\s+AUTOINCREMENT",
                 "SERIAL PRIMARY KEY",
                 statement,
                 flags=re.I,
@@ -160,17 +187,20 @@ class PostgresConnection:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
-
-
-def get_db():
-    if DATABASE_URL:
-        return PostgresConnection(DATABASE_URL)
-    con = sqlite3.connect(DATABASE, timeout=20)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
-    return con
-
+        conn = getattr(self, "_conn", None)
+        if conn is None:
+            return
+        self._conn = None
+        try:
+            # Never return an open/failed transaction to another request.
+            if not conn.closed and conn.get_transaction_status() != 0:
+                conn.rollback()
+            self._pool.putconn(conn, close=bool(conn.closed))
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
 def initialize_database():
     con = get_db()
     con.executescript("""
