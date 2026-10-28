@@ -857,7 +857,7 @@ def admin_dashboard():
 
     body = render_template_string(r'''<div class="page-head">
       <div><div class="eyebrow">ADMINISTRATION</div><h1>Admin Dashboard</h1>
-      <p>Review campus complaints, assign workers and track resolutions.</p></div>
+      <p>Review campus complaints, update status and track resolutions.</p></div>
       <span class="chip emergency">ADMIN PORTAL</span>
     </div>
     <div class="stats">
@@ -883,7 +883,7 @@ def admin_dashboard():
         <p class="admin-desc">{{c['description']}}</p>
         <form class="admin-form" method="POST" action="{{url_for('update_complaint', id=c['id'])}}">
           <div><label>Status</label><select name="status">{% for st in statuses %}<option value="{{st}}" {{'selected' if c['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
-          <div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} · {{w['department']}}</option>{% endfor %}</select></div>
+          
           <div><label>Admin remark</label><input name="remark" value="{{c['admin_remark'] or ''}}" placeholder="Next action or resolution note"></div>
           <button class="btn btn-primary" type="submit">Save update</button>
         </form>
@@ -958,15 +958,10 @@ def admin_export_data():
     for row in accounts:
         ws.append([row[key] for key in ('id','name','email','role','student_id','room','mobile','department','year','created_at')])
 
-    ww = wb.create_sheet('Worker Accounts')
-    ww.append(['Worker ID', 'Name', 'Email / Login', 'Worker Code', 'Department', 'Mobile', 'Active'])
-    for row in workers:
-        ww.append([row[key] for key in ('id','name','email','worker_code','department','mobile','active')])
-
     cw = wb.create_sheet('Complaints')
-    cw.append(['Database ID', 'Complaint ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Category', 'Title', 'Description', 'Location', 'Priority', 'Status', 'Assigned To', 'Assigned Worker', 'Admin Remark', 'Created At', 'Updated At'])
+    cw.append(['Database ID', 'Complaint ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Category', 'Title', 'Description', 'Location', 'Priority', 'Status', 'Assigned To', 'Admin Remark', 'Created At', 'Updated At'])
     for row in complaints:
-        cw.append([row[key] for key in ('id','complaint_id','user_id','student_name','student_email','student_id','room','category','title','description','location','priority','status','assigned_to','worker_name','admin_remark','created_at','updated_at')])
+        cw.append([row[key] for key in ('id','complaint_id','user_id','student_name','student_email','student_id','room','category','title','description','location','priority','status','assigned_to','admin_remark','created_at','updated_at')])
 
     lf = wb.create_sheet('Lost & Found')
     lf.append(['Listing ID', 'Student Account ID', 'Student Name', 'Student Email', 'Student ID', 'Room', 'Type', 'Item Title', 'Description', 'Location', 'Date Lost/Found', 'Category', 'Status', 'Has Photo', 'Registered At'])
@@ -975,7 +970,7 @@ def admin_export_data():
 
     # Open the workbook directly on Complaints so admins immediately see the exported reports.
     # Keep every registered complaint, including records older than the dashboard's 100-row display.
-    wb._sheets = [cw, ws, ww, lf]
+    wb._sheets = [cw, ws, lf]
     wb.active = 0
     cw.sheet_view.showGridLines = True
     cw.freeze_panes = 'A2'
@@ -985,8 +980,7 @@ def admin_export_data():
     summary = wb.create_sheet('Export Summary', 0)
     summary.append(['Campus Care 360 — Export Summary', 'Records exported'])
     summary.append(['Login accounts', len(accounts)])
-    summary.append(['Worker accounts', len(workers)])
-    summary.append(['Registered complaints', len(complaints)])
+        summary.append(['Registered complaints', len(complaints)])
     summary.append(['Lost & Found registrations', len(lost_found)])
     summary.append(['Note', 'Open the Complaints tab to view all complaint records. Passwords and password hashes are excluded.'])
     summary.freeze_panes = 'A2'
@@ -1226,11 +1220,11 @@ def student_profile():
 @app.route('/admin/profile')
 def admin_profile():
     if not require('admin'): return redirect(url_for('login'))
-    con=get_db(); u=con.execute('SELECT * FROM users WHERE id=?',(session['user_id'],)).fetchone(); total=con.execute('SELECT COUNT(*) n FROM complaints').fetchone()['n']; resolved=con.execute("SELECT COUNT(*) n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']; students=con.execute("SELECT COUNT(*) n FROM users WHERE role='student'").fetchone()['n']; workers=con.execute('SELECT COUNT(*) n FROM workers WHERE active=1').fetchone()['n']; con.close()
+    con=get_db(); u=con.execute('SELECT * FROM users WHERE id=?',(session['user_id'],)).fetchone(); total=con.execute('SELECT COUNT(*) n FROM complaints').fetchone()['n']; resolved=con.execute("SELECT COUNT(*) n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']; students=con.execute("SELECT COUNT(*) n FROM users WHERE role='student'").fetchone()['n']; con.close()
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">ADMINISTRATOR IDENTITY</div><h1>Admin profile</h1><p>Account information and a quick view of campus support operations.</p></div><span class="chip" style="background:#f5e4df;color:#8f202a;padding:9px 12px">● ADMIN ACCESS</span></div>
     <section class="profile-hero"><div class="profile-avatar">{{u['name'][0]|upper}}</div><div><div class="hero-kicker">CAMPUS CARE · CONTROL CENTRE</div><h1>{{u['name']}}</h1><p>{{u['email']}} · {{u['department'] or 'Campus Administration'}}</p><span class="profile-role">✦ SYSTEM ADMINISTRATOR</span></div></section>
     <div class="profile-grid"><div class="card profile-info-card"><h3>Administrator details</h3><div class="profile-details"><div class="profile-detail"><span>Full name</span><strong>{{u['name']}}</strong></div><div class="profile-detail"><span>Email address</span><strong>{{u['email']}}</strong></div><div class="profile-detail"><span>Mobile</span><strong>{{u['mobile'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Department</span><strong>{{u['department'] or 'Campus Administration'}}</strong></div><div class="profile-detail"><span>Access level</span><strong>Administrator</strong></div><div class="profile-detail"><span>Account status</span><strong>Active session</strong></div></div><p class="muted" style="margin:17px 0 0">Protect administrator credentials. Only issue student and worker access to verified campus members.</p></div>
-    <div><div class="section-title"><h3>Operations snapshot</h3><span>Current totals</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{total}}</strong><small>All submitted reports</small></div><div class="profile-stat-card"><small>Resolved / closed</small><strong>{{resolved}}</strong><small>Completed reports</small></div><div class="profile-stat-card"><small>Students</small><strong>{{students}}</strong><small>Student accounts</small></div><div class="profile-stat-card"><small>Active workers</small><strong>{{workers}}</strong><small>Campus workforce</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('admin_dashboard')}}"><span>▦</span>Manage complaint queue <em>›</em></a><a class="profile-shortcut" href="{{url_for('admin_students')}}"><span>♙</span>Student directory <em>›</em></a><a class="profile-shortcut" href="{{url_for('admin_workers')}}"><span>⚒</span>Workers & staff <em>›</em></a><a class="profile-shortcut" href="{{url_for('admin_password_resets')}}"><span>🔐</span>Password reset requests <em>›</em></a></div></div></div>''',u=u,total=total,resolved=resolved,students=students,workers=workers)
+    <div><div class="section-title"><h3>Operations snapshot</h3><span>Current totals</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{total}}</strong><small>All submitted reports</small></div><div class="profile-stat-card"><small>Resolved / closed</small><strong>{{resolved}}</strong><small>Completed reports</small></div><div class="profile-stat-card"><small>Students</small><strong>{{students}}</strong><small>Student accounts</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('admin_dashboard')}}"><span>▦</span>Manage complaint queue <em>›</em></a><a class="profile-shortcut" href="{{url_for('admin_students')}}"><span>♙</span>Student directory <em>›</em></a><a class="profile-shortcut" href="{{url_for('admin_password_resets')}}"><span>🔐</span>Password reset requests <em>›</em></a></div></div></div>''',u=u,total=total,resolved=resolved,students=students,workers=workers)
     return render_page(body,'Admin Profile','ADMIN PROFILE')
 
 @app.route('/uploads/<path:filename>')
