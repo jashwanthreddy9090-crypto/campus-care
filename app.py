@@ -147,7 +147,7 @@ class PostgresConnection:
         statement = sql.strip()
 
         # SQLite schema-inspection compatibility used by existing app migrations.
-        match = re.match(r"PRAGMA\\s+table_info\\s*\\(\\s*([^)]+)\\s*\\)", statement, re.I)
+        match = re.match(r"PRAGMA\s+table_info\s*\(\s*([^)]+)\s*\)", statement, re.I)
         if match:
             table = match.group(1).strip().strip('"\`[]')
             cur.execute(
@@ -173,7 +173,7 @@ class PostgresConnection:
             if not statement:
                 continue
             statement = re.sub(
-                r"INTEGER\\s+PRIMARY\\s+KEY\\s+AUTOINCREMENT",
+                r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
                 "SERIAL PRIMARY KEY",
                 statement,
                 flags=re.I,
@@ -197,10 +197,14 @@ class PostgresConnection:
                 conn.rollback()
             self._pool.putconn(conn, close=bool(conn.closed))
         except Exception:
+            # Discard broken connections and release the pool's checked-out slot.
             try:
-                conn.close()
+                self._pool.putconn(conn, close=True)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 def initialize_database():
     con = get_db()
     con.executescript("""
