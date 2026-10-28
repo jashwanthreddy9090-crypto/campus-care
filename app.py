@@ -980,7 +980,7 @@ def admin_export_data():
     summary = wb.create_sheet('Export Summary', 0)
     summary.append(['Campus Care 360 — Export Summary', 'Records exported'])
     summary.append(['Login accounts', len(accounts)])
-        summary.append(['Registered complaints', len(complaints)])
+    summary.append(['Registered complaints', len(complaints)])
     summary.append(['Lost & Found registrations', len(lost_found)])
     summary.append(['Note', 'Open the Complaints tab to view all complaint records. Passwords and password hashes are excluded.'])
     summary.freeze_panes = 'A2'
