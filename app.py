@@ -205,6 +205,15 @@ class PostgresConnection:
                     conn.close()
                 except Exception:
                     pass
+
+def get_db():
+    if DATABASE_URL:
+        return PostgresConnection(DATABASE_URL)
+    con = sqlite3.connect(DATABASE, timeout=20)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    return con
+
 def initialize_database():
     con = get_db()
     con.executescript("""
