@@ -920,17 +920,8 @@ def admin_dashboard():
             <div class="admin-title">{{e['caller_name'] or e['student_name'] or 'Unknown caller'}} · {{e['caller_mobile'] or 'No number supplied'}}</div>
             <div class="admin-meta">Student ID: {{e['student_id'] or '—'}} · Type: {{e['emergency_type'] or 'General'}} · Call event: {{e['call_status']}}</div>
           </div>
-          <span class="chip {{'emergency' if e['callback_status'] in ['Pending','Unable to reach'] else ('resolved' if e['callback_status'] in ['Contacted','Resolved'] else 'progress')}}">{{e['callback_status']}}</span>
         </div>
         {% if e['details'] %}<p class="admin-desc">{{e['details']}}</p>{% endif %}
-        <div class="admin-form" style="align-items:end">
-          {% if e['caller_mobile'] %}<a class="btn btn-primary" href="tel:{{e['caller_mobile']}}">☎ Call back</a>{% endif %}
-          <form method="POST" action="{{url_for('admin_update_emergency_call', call_id=e['id'])}}" style="display:flex;gap:10px;flex:1;flex-wrap:wrap;align-items:end">
-            <div style="min-width:150px;flex:0.7"><label>Callback status</label><select name="callback_status">{% for st in ['Pending','In Progress','Contacted','Unable to reach','Resolved','Cancelled'] %}<option value="{{st}}" {{'selected' if e['callback_status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
-            <div style="min-width:180px;flex:1"><label>Callback notes</label><input name="callback_notes" value="{{e['callback_notes'] or ''}}" maxlength="500" placeholder="Outcome / next action"></div>
-            <button class="btn btn-light" type="submit">Save</button>
-          </form>
-        </div>
       </article>
       {% else %}<div class="empty">No emergency-service taps recorded yet.</div>{% endfor %}
     </div>
