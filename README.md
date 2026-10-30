@@ -10,11 +10,11 @@ A Flask-based campus support portal with a red, cream, white, and charcoal inter
 - Admin-reviewed password reset requests
 - Campus notices and in-app notifications
 - Lost & Found listings
-- Help & Support and campus service directory
+- Help & Support and emergency contact directory
 - Password hashing and secure session-cookie settings
 - PostgreSQL support for persistent hosted data; SQLite for local development
 
-The worker portal, Campus Map UI, and AI chat have been retired/hidden in the current preview branch. The database schema may retain legacy tables so existing data is not accidentally deleted.
+The worker portal, Campus Map, and AI chat have been retired from the current preview branch. Legacy database tables, if already present, are left untouched so stored data is not accidentally deleted.
 
 ## Code map — start here before editing
 
@@ -103,7 +103,7 @@ Save changed variables and redeploy the relevant environment.
 - Open your deployed site and sign in through `/login`.
 - The first admin account is created only when the configured email does not already exist. Changing `ADMIN_PASSWORD` later does not automatically change an existing account's password.
 - Use the admin portal to create student accounts.
-- Add verified campus locations and official contact numbers before students rely on them.
+- Verify emergency and official campus contact numbers before students rely on them.
 
 ## If Vercel says “Git information retrieval failed”
 
