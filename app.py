@@ -909,7 +909,7 @@ def admin_dashboard():
     </div>
     <div class="section-title" style="margin-top:8px"><h3>🚨 SOS &amp; Emergency History</h3></div>
     <div class="card" style="margin-bottom:24px;border-color:#efc8c8">
-      <p class="muted">This section shows SOS and emergency-service call events recorded by the app. Callback requests and callback management are not part of this admin section. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
+      <p class="muted">This section shows SOS button taps and emergency-service call events recorded by the app. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
       {% for e in emergency_calls %}
       <article class="admin-card" style="border-color:#f0dddd;margin-top:12px">
         <div class="admin-top">
