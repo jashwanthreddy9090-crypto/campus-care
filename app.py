@@ -873,7 +873,8 @@ def admin_dashboard():
         SELECT e.*, u.name AS student_name, u.student_id
         FROM emergency_call_logs e
         LEFT JOIN users u ON u.id = e.user_id
-        WHERE e.source <> 'callback_request'
+        WHERE LOWER(COALESCE(e.source, '')) NOT IN ('callback_request', 'callback')
+          AND LOWER(COALESCE(e.call_status, '')) NOT LIKE '%callback%'
         ORDER BY e.created_at DESC
         LIMIT 100
     """).fetchall()
