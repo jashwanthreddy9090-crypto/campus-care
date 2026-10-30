@@ -908,22 +908,6 @@ def admin_dashboard():
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
-    <div class="section-title" style="margin-top:8px"><h3>🚨 SOS &amp; Emergency History</h3></div>
-    <div class="card" style="margin-bottom:24px;border-color:#efc8c8">
-      <p class="muted">This section shows SOS button taps and emergency-service call events recorded by the app. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
-      {% for e in emergency_calls %}
-      <article class="admin-card" style="border-color:#f0dddd;margin-top:12px">
-        <div class="admin-top">
-          <div>
-            <div class="admin-meta">EMG-{{e['id']}} · {{e['source']}} · {{e['direction']}} · {{e['created_at']}}</div>
-            <div class="admin-title">{{e['caller_name'] or e['student_name'] or 'Unknown caller'}} · {{e['caller_mobile'] or 'No number supplied'}}</div>
-            <div class="admin-meta">Student ID: {{e['student_id'] or '—'}} · Type: {{e['emergency_type'] or 'General'}} · Call event: {{e['call_status']}}</div>
-          </div>
-        </div>
-        {% if e['details'] %}<p class="admin-desc">{{e['details']}}</p>{% endif %}
-      </article>
-      {% else %}<div class="empty">No emergency-service taps recorded yet.</div>{% endfor %}
-    </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
     {% for c in complaints %}
