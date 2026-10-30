@@ -513,6 +513,23 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 /* Original uploaded logo image: replaces the old CSS/text-drawn mark everywhere. */
 .uploaded-campus-logo{display:block!important;flex:0 0 48px!important;width:48px!important;height:48px!important;min-width:48px!important;object-fit:contain!important;padding:0!important;margin:0!important;border:0!important;border-radius:10px!important;background:transparent!important;box-shadow:none!important;overflow:visible!important;isolation:auto!important}
 .auth-brand .uploaded-campus-logo{width:52px!important;height:52px!important;flex-basis:52px!important;min-width:52px!important}
+
+/* Mobile rendering performance: simplify costly visual effects on small devices. */
+@media(max-width:760px){
+  .topbar{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:#fffdf9!important}
+  .hero{background:linear-gradient(125deg,#171311 0%,#35191b 54%,#8c2029 100%)!important;box-shadow:none!important}
+  .hero:before,.hero:after,.orbit{display:none!important}
+  .stat,.card,.admin-card,.contact-card,.worker-card,.help-card,.complaint-row,.table-wrap,.auth-card{box-shadow:none!important}
+  .btn,.sidebar{transition:none!important}
+  .btn:hover{transform:none!important}
+  .nav a:hover,.nav a.active{box-shadow:none!important}
+  input:focus,select:focus,textarea:focus{box-shadow:0 0 0 2px rgba(165,31,43,.12)!important}
+  body{background:#f6f0e8!important}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+
 </style></head><body>
 {% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><img class="uploaded-campus-logo" src="{{ url_for('campus_care_logo', v='logo-20261011-final') }}" alt="Campus Care 360 original logo"><div><h2>Campus Care 360</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
