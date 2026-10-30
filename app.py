@@ -25,6 +25,7 @@ import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from campus_config import CATEGORIES, PRIORITIES, STATUSES, ALLOWED_EXTENSIONS, CONTACTS, priority_for_category, valid_campus_email
 
 app = Flask(__name__)
 
@@ -68,52 +69,6 @@ UPLOAD_FOLDER = os.path.join("/tmp", "campuscare_uploads") if os.environ.get("VE
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # 6 MB total request limit
 
-CATEGORIES = [
-    "Hostel", "Classroom", "Laboratory", "Washroom", "Electricity", "Water",
-    "Wi-Fi", "Food/Mess", "Cleaning", "Security", "Ragging / Bullying",
-    "Sexual Harassment / Misconduct", "Threats / Violence", "Discrimination",
-    "Medical Emergency", "Fire / Safety Hazard", "Electrical Hazard",
-    "Water Leakage / Plumbing", "Theft / Missing Belongings",
-    "Mental Health / Student Welfare", "Transport", "Other"
-]
-PRIORITIES = ["Low", "Medium", "High", "Emergency"]
-
-# Priority is calculated on the server; form edits cannot lower a safety report's priority.
-# 4. BUSINESS RULES AND INPUT VALIDATION
-# Complaint priority is derived here so forms cannot silently override the rule.
-def priority_for_category(category):
-    category = (category or "").strip().casefold()
-    emergency_categories = {
-        "medical emergency", "fire / safety hazard", "threats / violence"
-    }
-    high_categories = {
-        "ragging / bullying", "sexual harassment / misconduct", "discrimination",
-        "security", "electrical hazard", "water leakage / plumbing", "electricity",
-        "theft / missing belongings", "mental health / student welfare", "hostel"
-    }
-    low_categories = {"wi-fi", "cleaning", "food/mess", "classroom", "laboratory"}
-    if category in emergency_categories:
-        return "Emergency"
-    if category in high_categories:
-        return "High"
-    if category in low_categories:
-        return "Low"
-    return "Medium"
-STATUSES = ["Submitted","Assigned","In Progress","Resolved","Closed"]
-ALLOWED_EXTENSIONS = {"png","jpg","jpeg","gif","webp"}
-
-def valid_campus_email(email):
-    return bool(re.fullmatch(r"[^@\s]+@campus\.360", email.strip().lower()))
-
-# Worker accounts are retired. Do not seed demo worker profiles.
-
-CONTACTS = [
-    ("Campus Admin", "Administration", "9876500001"),
-    ("Hostel Warden", "Hostel Office", "9876500002"),
-    ("Maintenance Desk", "Maintenance", "9876500003"),
-    ("Security Desk", "Security", "9876500004"),
-    ("Emergency Help", "Emergency", "112"),
-]
 
 # Reuse PostgreSQL connections across warm serverless invocations instead of
 # opening a new TLS/database connection for every get_db() call.
