@@ -8,8 +8,8 @@ app = Flask(__name__)
 
 @app.before_request
 def hide_removed_features():
-    # AI Assistant and Campus Map are intentionally disabled and hidden from the UI.
-    if request.endpoint in {'ai_assistant', 'campus_map', 'campus_map_update', 'campus_map_remove'}:
+    # Campus Map is disabled and hidden from the UI.
+    if request.endpoint in {'campus_map', 'campus_map_update', 'campus_map_remove'}:
         return redirect(url_for('help_support'))
 
 @app.before_request
@@ -465,15 +465,6 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 @media(max-width:760px){.emergency-actions{grid-template-columns:1fr}.emergency-tile{padding:15px}.emergency-panel{padding:22px}}
 
 
-/* ChatGPT-inspired Campus Care 360 AI workspace */
-.chatgpt-shell{min-height:calc(100vh - 160px);height:calc(100vh - 160px);max-height:980px;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #e9e2d8;border-radius:24px;overflow:hidden;box-shadow:0 18px 55px rgba(30,20,18,.07);margin-top:-12px}
-.chatgpt-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #eee7df;background:rgba(255,253,249,.96)}
-.chatgpt-title-wrap{display:flex;align-items:center;gap:12px}.chatgpt-mark,.chatgpt-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,#a61e2d,#401016);color:#fff;font-size:20px;box-shadow:0 6px 18px rgba(126,25,39,.2)}
-.chatgpt-title-wrap h1{font-size:16px;margin:0;color:#211b19;letter-spacing:-.3px}.chatgpt-title-wrap p{margin:3px 0 0;color:#91857d;font-size:11px}.chatgpt-clear-form{margin:0}.chatgpt-clear{border:1px solid #e6ddd4;border-radius:12px;background:#fff;color:#3b302b;padding:10px 13px;font-size:12px;font-weight:750;display:flex;gap:7px;align-items:center}.chatgpt-clear:hover{background:#f8f1e9}
-.chatgpt-conversation{flex:1;overflow:auto;padding:28px clamp(18px,7vw,100px);scroll-behavior:smooth;background:radial-gradient(ellipse at 50% 0%,rgba(248,238,225,.55),transparent 46%),#fffdf9}.chatgpt-welcome{max-width:780px;margin:5vh auto 20px;text-align:center}.welcome-orb{width:64px;height:64px;margin:0 auto 22px;display:grid;place-items:center;border-radius:22px;color:white;font-size:30px;background:linear-gradient(145deg,#a91e2c,#261c1c);box-shadow:0 12px 35px rgba(122,25,34,.2)}.chatgpt-welcome h2{font-size:clamp(25px,3vw,35px);letter-spacing:-1.2px;color:#201a18;margin:0 0 12px}.chatgpt-welcome>p{max-width:510px;margin:0 auto;color:#887c74;font-size:14px;line-height:1.7}.chatgpt-suggestions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:32px auto 0;text-align:left;max-width:670px}.chatgpt-suggestions button{position:relative;display:grid;grid-template-columns:30px 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;text-align:left;padding:16px;border:1px solid #eee5dc;background:rgba(255,255,255,.85);border-radius:17px;transition:transform .18s,border-color .18s,box-shadow .18s}.chatgpt-suggestions button:hover{transform:translateY(-2px);border-color:#d5b9ae;box-shadow:0 9px 24px rgba(44,26,20,.06)}.chatgpt-suggestions button span{grid-row:1/3;width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:#f8eee8;color:#922431;font-size:17px}.chatgpt-suggestions button b{font-size:12px;color:#352a26}.chatgpt-suggestions button small{font-size:11px;color:#92857c;margin-top:4px}
-.chatgpt-message{max-width:850px;margin:0 auto 25px;display:flex;gap:13px;align-items:flex-start;line-height:1.75;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.chatgpt-message.from-user{justify-content:flex-end}.chatgpt-message.from-user .chatgpt-message-content{max-width:min(80%,650px);background:#f3eee8;color:#2b2420;padding:12px 16px;border-radius:19px 19px 5px 19px}.chatgpt-message.from-ai{max-width:850px}.chatgpt-message.from-ai .chatgpt-avatar{flex:0 0 32px;width:32px;height:32px;border-radius:11px;font-size:15px}.chatgpt-message-content{min-width:0;max-width:calc(100% - 45px);color:#352d29}.chatgpt-speaker{font-size:12px;font-weight:850;color:#8c202b;margin:2px 0 5px}.chatgpt-message-text{font-size:14px;line-height:1.8}.chatgpt-composer-wrap{padding:12px clamp(14px,6vw,78px) 13px;background:linear-gradient(180deg,rgba(255,253,249,.8),#fffdf9 30%)}.chatgpt-composer{max-width:850px;margin:0 auto;display:flex;align-items:flex-end;gap:12px;padding:10px 10px 10px 18px;border:1px solid #e6dcd2;border-radius:24px;background:white;box-shadow:0 8px 28px rgba(35,22,18,.08);transition:border-color .2s,box-shadow .2s}.chatgpt-composer:focus-within{border-color:#c89a91;box-shadow:0 0 0 4px rgba(160,36,48,.07),0 8px 28px rgba(35,22,18,.06)}.chatgpt-composer textarea{border:0!important;box-shadow:none!important;outline:none;resize:none;min-height:28px;max-height:150px;padding:5px 0!important;background:transparent!important;border-radius:0!important;font-size:14px;line-height:1.55;color:#2c2421}.chatgpt-composer textarea::placeholder{color:#a1968e}.chatgpt-send{flex:0 0 38px;width:38px;height:38px;border:0;border-radius:14px;background:#8e1e2a;color:white;font-size:23px;font-weight:800;display:grid;place-items:center;transition:background .2s,transform .2s}.chatgpt-send:hover{background:#63141e;transform:translateY(-1px)}.chatgpt-disclaimer{text-align:center;font-size:10px;color:#a1968e;margin:10px 0 0}.chatgpt-disclaimer a{color:#8e1e2a;font-weight:850;text-decoration:underline}
-@media(max-width:760px){.chatgpt-shell{height:calc(100vh - 125px);min-height:570px;margin:0 -5px;border-radius:18px}.chatgpt-header{padding:14px}.chatgpt-clear span{display:none}.chatgpt-conversation{padding:22px 14px}.chatgpt-welcome{margin:5vh auto 15px}.chatgpt-suggestions{grid-template-columns:1fr;margin-top:24px}.chatgpt-suggestions button{padding:13px}.chatgpt-message{font-size:13px;gap:9px}.chatgpt-message.from-user .chatgpt-message-content{max-width:90%}.chatgpt-composer-wrap{padding:10px 10px 12px}.chatgpt-composer{padding-left:14px}}
-
 
 /* 2026 visual refresh: signature mark, help centre, profiles and chat polish */
 .logo.logo-mark{position:relative;overflow:hidden;gap:0;width:48px;height:48px;border-radius:16px;background:linear-gradient(145deg,#c82b3e 0%,#8e1728 55%,#3a1118 100%);box-shadow:0 12px 28px rgba(142,23,40,.28);border:1px solid rgba(255,255,255,.32);isolation:isolate}
@@ -482,15 +473,6 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 .logo.logo-mark{display:flex;align-items:center;justify-content:center;gap:0}
 .logo-c{font-size:22px!important;font-weight:950;letter-spacing:-1.5px!important;line-height:1;color:#E8D29A}
 .logo-degree{font-size:9px;font-weight:950;letter-spacing:-.2px;color:#E8D29A;align-self:center;margin:0 0 0 -1px;white-space:nowrap}
-.chatgpt-shell{border-radius:28px;box-shadow:0 24px 70px rgba(51,24,24,.09);border-color:#e5d7cb}
-.chatgpt-header{background:linear-gradient(110deg,#fffdf9,#fbf1e9)}
-.chatgpt-mark,.chatgpt-avatar,.welcome-orb{background:linear-gradient(145deg,#cf3547,#741421 72%,#241417);box-shadow:0 10px 25px rgba(142,23,40,.23)}
-.chatgpt-send{background:linear-gradient(145deg,#b62436,#781421);box-shadow:0 5px 13px rgba(142,23,40,.18)}
-.chatgpt-suggestions button{background:linear-gradient(135deg,#fffdf9,#fff8f1)}
-.chatgpt-suggestions button span{background:#f7e5df;color:#9c1d2d}
-.chatgpt-message.from-user .chatgpt-message-content{background:#f5e8e0;border:1px solid #eddbd0}
-.chatgpt-message.from-ai .chatgpt-message-content{padding:1px 0}
-.chatgpt-message-text{color:#332825}
 .help-hero{position:relative;overflow:hidden;border-radius:26px;padding:30px;background:radial-gradient(circle at 90% 15%,rgba(208,66,78,.42),transparent 27%),linear-gradient(125deg,#171313,#421820 65%,#8e1c2b);color:#fff;margin-bottom:22px;box-shadow:0 20px 48px rgba(58,20,26,.14)}
 .help-hero:after{content:"?";position:absolute;right:6%;top:-38px;font-size:190px;line-height:1;font-weight:950;color:rgba(255,255,255,.055);pointer-events:none}
 .help-hero h2{font-size:clamp(23px,3vw,32px);letter-spacing:-1px;margin:8px 0}.help-hero p{color:#f0d9d6;max-width:640px;font-size:13px;line-height:1.75;margin:0}
@@ -607,48 +589,6 @@ def render_page(body,title="Campus Care 360",eyebrow="CAMPUS CARE 360"):
 
 def require(role):
     return session.get("role")==role
-
-def ai_reply(message):
-    m = (message or "").lower().strip()
-    if not m:
-        return "Hi! I’m Campus Care 360 AI. Ask about complaints, campus notices, lost & found, the campus map, login, or support."
-    if any(x in m for x in ["lost", "found item", "lost and found"]):
-        return "Open Lost & Found from the menu. You can report an item you lost or found, browse open listings, and send a claim request without exposing another student's contact details."
-    if any(x in m for x in ["notice", "announcement", "holiday", "event"]):
-        con = get_db()
-        rows = con.execute("SELECT title,body,category,created_at FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 5").fetchall()
-        con.close()
-        if rows:
-            return "Recent campus notices:\n" + "\n".join([f"• {r['title']} ({r['category']}): {r['body'][:180]}" for r in rows])
-        return "There are no campus notices published yet. Open Campus Notices to check again later."
-    if any(x in m for x in ["map", "where is", "location of", "find the library", "find hostel"]):
-        return "Open Campus Map in the menu to browse campus buildings and service locations. If a location is missing, ask an administrator to add it."
-    if any(x in m for x in ["my complaint", "my complaints", "complaint status", "track", "status"]):
-        if session.get('role') == 'student':
-            con = get_db()
-            rows = con.execute("SELECT complaint_id,title,status,updated_at FROM complaints WHERE user_id=? ORDER BY updated_at DESC LIMIT 5", (session.get('user_id'),)).fetchall()
-            con.close()
-            if rows:
-                return "Your recent complaint updates:\n" + "\n".join([f"• {r['complaint_id']} — {r['title']}: {r['status']} (updated {r['updated_at']})" for r in rows])
-            return "You have not submitted a complaint yet. Use New Complaint to report an issue."
-        return "Open your dashboard to view complaint status. Students can track their own reports; workers can view assigned tasks."
-    if any(x in m for x in ["not working", "app problem", "error", "bug", "broken", "website"]):
-        return "Try refreshing the page, checking your internet connection, and signing in again. If an upload fails, use PNG/JPG and a smaller image. If the problem remains, open Help & Support and share the page, steps, and any error message."
-    if "login" in m or "password" in m or "forgot" in m:
-        return "Use the campus email and password issued by your administrator. Choose Forgot Password to request a reset; the password changes only after admin approval. Never share your password in chat."
-    if "complaint" in m and any(x in m for x in ["register", "submit", "new", "report"]):
-        return "Open New Complaint, add a title, category, location, priority and description, then submit. Keep the complaint reference ID for follow-up."
-    if "contact" in m or "phone" in m or "number" in m:
-        return "Open Contacts or Emergency & SOS from the menu to find campus support numbers. For immediate danger in India, call 112. Confirm campus contact numbers with the administration."
-    if "worker" in m or "staff" in m:
-        return "The worker portal has been retired. Please contact the administrator for complaint updates."
-    if "student" in m and "admin" in m:
-        return "Only administrators can create student accounts. Admins can manage accounts from the Students section."
-    if "emergency" in m or "sos" in m or "ambulance" in m or "fire" in m:
-        return "Open Emergency & SOS for campus safety information. If there is immediate danger in India, call 112. The app does not silently send an SOS alert."
-    if "timetable" in m or "attendance" in m or "class" in m:
-        return "Campus Care 360's current release focuses on support workflows. Ask the administrator to publish verified timetable and attendance data before relying on these details."
-    return "I can help with complaints, notices, lost & found, campus support contacts, account access and troubleshooting. Try asking: ‘Show my recent complaints’, ‘What are the latest notices?’, or ‘How do I report a lost item?’"
 
 LOGIN = r'''<div class="auth-card"><div class="auth-brand"><img class="uploaded-campus-logo" src="{{ url_for('campus_care_logo', v='logo-20261011-final') }}" alt="Campus Care 360 original logo"><div><h1>Campus Care 360</h1><span>Hostel & campus support hub</span></div></div><h2>Welcome back.</h2><p>Report an issue, track progress and connect with campus support.</p><form method="POST"><div><label>Email</label><input type="email" name="email" placeholder="yourname@campus.360" required></div><div><label>Password</label><input type="password" name="password" placeholder="Enter your password" required></div><button class="btn btn-primary" style="justify-content:center" type="submit">Sign in →</button></form><div class="auth-link"><a href="{{url_for('forgot_password')}}">Forgot password?</a></div><div class="auth-link">Staff member? <a href="{{url_for('worker_login')}}">Open Worker Portal</a></div><div class="demo">Accounts are issued by Campus Care 360 administration only. Use your assigned email and password.</div></div>'''
 
@@ -1227,39 +1167,6 @@ def help_support():
     <div class="section-title" style="margin-top:28px"><h3>Frequently asked questions</h3><span>Helpful details</span></div><div class="faq"><details><summary>Who can create student and worker accounts?</summary><p>Only an authorized administrator should issue account emails, passwords and IDs. If you need access, contact the administrator rather than creating another account.</p></details><details><summary>Where is my complaint information?</summary><p>Sign in and open your dashboard to see your complaints and their latest status. Keep your complaint ID for any follow-up.</p></details><details><summary>What if the app is down?</summary><p>Try again after checking your connection. If the issue persists, contact the administrator and include the page URL, what you clicked and any visible error message.</p></details><details><summary>What should I do in an emergency?</summary><p>If someone is in immediate danger, move to safety if possible and call 112 in India. The app’s SOS shortcut opens the phone dialler; it does not silently send an alert.</p></details></div>''')
     return render_page(body,'Help & Support','SUPPORT CENTRE')
 
-@app.route('/ai', methods=['GET', 'POST'])
-def ai_assistant():
-    if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
-    account_type = 'worker' if session.get('role') == 'worker' else 'user'
-    account_id = session.get('worker_id') if account_type == 'worker' else session.get('user_id')
-    con = get_db()
-    if request.method == 'POST':
-        action = request.form.get('action', 'send')
-        if action == 'clear':
-            con.execute('DELETE FROM ai_chat_messages WHERE account_type=? AND account_id=?', (account_type, account_id))
-            con.commit(); con.close()
-            return redirect(url_for('ai_assistant'))
-        question = request.form.get('message', '').strip()[:1500]
-        if question:
-            answer = ai_reply(question)
-            con.execute('INSERT INTO ai_chat_messages(account_type,account_id,role,message) VALUES(?,?,?,?)', (account_type, account_id, 'user', question))
-            con.execute('INSERT INTO ai_chat_messages(account_type,account_id,role,message) VALUES(?,?,?,?)', (account_type, account_id, 'assistant', answer))
-            con.commit()
-        con.close()
-        return redirect(url_for('ai_assistant'))
-    rows = con.execute('SELECT role,message FROM ai_chat_messages WHERE account_type=? AND account_id=? ORDER BY id DESC LIMIT 24', (account_type, account_id)).fetchall()
-    con.close()
-    history = [{'role': r['role'], 'text': r['message']} for r in reversed(rows)]
-    body = render_template_string(r'''<div class="chatgpt-shell">
-      <header class="chatgpt-header"><div class="chatgpt-title-wrap"><div class="chatgpt-mark">✦</div><div><h1>Campus Care 360 AI</h1><p>Campus-aware support assistant · Chat history saved to your account</p></div></div><form method="POST"><button class="chatgpt-clear" type="submit" name="action" value="clear">＋ <span>New chat</span></button></form></header>
-      <main class="chatgpt-conversation" id="chatgptConversation">
-        {% if history %}{% for item in history %}<div class="chatgpt-message {{ 'from-user' if item.role == 'user' else 'from-ai' }}">{% if item.role == 'assistant' %}<div class="chatgpt-avatar">✦</div>{% endif %}<div class="chatgpt-message-content">{% if item.role == 'assistant' %}<div class="chatgpt-speaker">Campus Care 360</div>{% endif %}<div class="chatgpt-message-text">{{ item.text }}</div></div></div>{% endfor %}
-        {% else %}<section class="chatgpt-welcome"><div class="welcome-orb">✦</div><h2>How can I help you today?</h2><p>Ask about your complaints, campus notices, lost items, locations or account access.</p><div class="chatgpt-suggestions"><button type="button" onclick="useSuggestion('Show my recent complaints')"><span>⌁</span><b>My complaints</b><small>Check recent status updates</small></button><button type="button" onclick="useSuggestion('What are the latest campus notices?')"><span>▤</span><b>Campus notices</b><small>See recent announcements</small></button><button type="button" onclick="useSuggestion('How do I report a lost item?')"><span>⌕</span><b>Lost & Found</b><small>Report or claim an item</small></button><button type="button" onclick="useSuggestion('How can I reset my password?')"><span>🔐</span><b>Account help</b><small>Request an admin-approved reset</small></button></div></section>{% endif %}
-      </main><div class="chatgpt-composer-wrap"><form class="chatgpt-composer" method="POST" id="chatgptForm"><textarea id="chatgptInput" name="message" rows="1" maxlength="1500" required placeholder="Message Campus Care 360…" aria-label="Message Campus Care 360"></textarea><button class="chatgpt-send" type="submit" aria-label="Send message">↑</button></form><p class="chatgpt-disclaimer">Answers use available campus data and may be incomplete. For immediate danger in India, call <a href="tel:112">112</a>.</p></div></div>
-    <script>const chatInput=document.getElementById('chatgptInput');function useSuggestion(text){chatInput.value=text;chatInput.focus();}chatInput.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,150)+'px';});chatInput.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('chatgptForm').requestSubmit();}});const conversation=document.getElementById('chatgptConversation');conversation.scrollTop=conversation.scrollHeight;</script>''', history=history)
-    return render_page(body, 'AI Assistant', 'AI SUPPORT')
-
 @app.route('/profile')
 def student_profile():
     if not require('student'): return redirect(url_for('login'))
@@ -1267,7 +1174,7 @@ def student_profile():
     body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">YOUR CAMPUS IDENTITY</div><h1>My profile</h1><p>Your details, campus identity and support activity in one place.</p></div><a class="btn btn-primary" href="{{url_for('student_dashboard')}}">← Dashboard</a></div>
     <section class="profile-hero"><div class="profile-avatar">{{u['name'][0]|upper}}</div><div><div class="hero-kicker">CAMPUS CARE MEMBER</div><h1>{{u['name']}}</h1><p>{{u['email']}}</p><span class="profile-role">✦ VERIFIED STUDENT PROFILE</span></div></section>
     <div class="profile-grid"><div class="card profile-info-card"><h3>Personal & academic details</h3><div class="profile-details"><div class="profile-detail"><span>Student ID</span><strong>{{u['student_id'] or 'Not assigned'}}</strong></div><div class="profile-detail"><span>Mobile number</span><strong>{{u['mobile'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Department</span><strong>{{u['department'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Academic year</span><strong>{{u['year'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Hostel / room</span><strong>{{u['room'] or 'Not provided'}}</strong></div><div class="profile-detail"><span>Account role</span><strong>Student</strong></div></div><p class="muted" style="margin:17px 0 0">Need to correct your registered details? Contact the campus administrator.</p></div>
-    <div><div class="section-title"><h3>Your support activity</h3><span>Live overview</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{count}}</strong><small>Reports submitted</small></div><div class="profile-stat-card"><small>Resolved</small><strong>{{resolved}}</strong><small>Completed cases</small></div><div class="profile-stat-card" style="grid-column:1/-1"><small>In progress</small><strong>{{active}}</strong><small>Reports being handled by campus teams</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('new_complaint')}}"><span>＋</span>Report a new issue <em>›</em></a><a class="profile-shortcut" href="{{url_for('ai_assistant')}}"><span>✦</span>Ask Campus Care 360 AI <em>›</em></a><a class="profile-shortcut" href="{{url_for('help_support')}}"><span>?</span>Help & support <em>›</em></a></div></div></div>''',u=u,count=count,resolved=resolved,active=active)
+    <div><div class="section-title"><h3>Your support activity</h3><span>Live overview</span></div><div class="profile-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="profile-stat-card"><small>Total complaints</small><strong>{{count}}</strong><small>Reports submitted</small></div><div class="profile-stat-card"><small>Resolved</small><strong>{{resolved}}</strong><small>Completed cases</small></div><div class="profile-stat-card" style="grid-column:1/-1"><small>In progress</small><strong>{{active}}</strong><small>Reports being handled by campus teams</small></div></div><div class="profile-shortcuts"><a class="profile-shortcut" href="{{url_for('new_complaint')}}"><span>＋</span>Report a new issue <em>›</em></a><a class="profile-shortcut" href="{{url_for('help_support')}}"><span>?</span>Help & support <em>›</em></a></div></div></div>''',u=u,count=count,resolved=resolved,active=active)
     return render_page(body,'My Profile','MY PROFILE')
 
 @app.route('/admin/profile')
