@@ -21,13 +21,46 @@ Keep database migrations additive and preserve existing records.
 
 # 1. IMPORTS AND FLASK APPLICATION SETUP
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
-import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading
+import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading, time
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from campus_config import CATEGORIES, PRIORITIES, STATUSES, ALLOWED_EXTENSIONS, CONTACTS, priority_for_category, valid_campus_email
 
 app = Flask(__name__)
+
+
+class DatabaseBusyError(RuntimeError):
+    """Raised when all pooled database connections remain busy past a short wait."""
+
+
+@app.errorhandler(DatabaseBusyError)
+def handle_database_busy(_error):
+    # Fail gracefully instead of returning an unhelpful 500 when the small
+    # serverless connection pool is briefly saturated.
+    response = Response(
+        "<!doctype html><html lang='en'><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Campus Care 360 is busy</title>"
+        "<body style='font:16px system-ui;max-width:620px;margin:12vh auto;padding:24px;color:#332522'>"
+        "<h1>Campus Care 360 is temporarily busy</h1>"
+        "<p>Your request could not be processed right now because the service is handling other requests.</p>"
+        "<p>Please wait a few seconds and try again. For an immediate emergency in India, call <a href='tel:112'>112</a>.</p>"
+        "<p><a href='javascript:location.reload()'>Try again</a></p></body></html>",
+        status=503,
+        mimetype="text/html",
+    )
+    response.headers["Retry-After"] = "2"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/healthz")
+def health_check():
+    """Lightweight platform check; deliberately does not consume a DB connection."""
+    response = jsonify(status="ok", service="campus-care-360")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.before_request
@@ -100,6 +133,22 @@ def _get_postgres_pool(dsn, DictCursor):
     return _POSTGRES_POOL
 
 
+def _get_pooled_connection(pool, wait_seconds=1.5):
+    """Wait briefly for a pooled connection, then return a retryable 503."""
+    from psycopg2.pool import PoolError
+
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            return pool.getconn()
+        except PoolError as exc:
+            if time.monotonic() >= deadline:
+                raise DatabaseBusyError(
+                    "The database connection pool is temporarily at capacity."
+                ) from exc
+            time.sleep(0.05)
+
+
 class PostgresConnection:
     """SQLite-compatible adapter using a small, thread-safe Neon connection pool."""
     def __init__(self, dsn):
@@ -122,10 +171,10 @@ class PostgresConnection:
             )
 
         self._pool = _get_postgres_pool(dsn, DictCursor)
-        self._conn = self._pool.getconn()
+        self._conn = _get_pooled_connection(self._pool)
         if self._conn.closed:
             self._pool.putconn(self._conn, close=True)
-            self._conn = self._pool.getconn()
+            self._conn = _get_pooled_connection(self._pool)
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor()
