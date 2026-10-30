@@ -869,11 +869,12 @@ def admin_dashboard():
     submitted = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status='Submitted'").fetchone()['n']
     active = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Assigned','In Progress')").fetchone()['n']
     resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
-    emergency_pending = con.execute("SELECT COUNT(*) AS n FROM emergency_call_logs WHERE callback_status IN ('Pending','In Progress','Unable to reach')").fetchone()['n']
+    emergency_pending = con.execute("SELECT COUNT(*) AS n FROM emergency_call_logs WHERE source <> 'callback_request' AND callback_status IN ('Pending','In Progress','Unable to reach')").fetchone()['n']
     emergency_calls = con.execute("""
         SELECT e.*, u.name AS student_name, u.student_id
         FROM emergency_call_logs e
         LEFT JOIN users u ON u.id = e.user_id
+        WHERE e.source <> 'callback_request'
         ORDER BY CASE e.callback_status WHEN 'Pending' THEN 0 WHEN 'In Progress' THEN 1 WHEN 'Unable to reach' THEN 2 ELSE 3 END,
                  e.created_at DESC
         LIMIT 100
@@ -908,9 +909,9 @@ def admin_dashboard():
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
-    <div class="section-title" style="margin-top:8px"><h3>🚨 Emergency Call History & Callback Queue</h3><span>{{emergency_pending}} awaiting follow-up</span></div>
+    <div class="section-title" style="margin-top:8px"><h3>🚨 Emergency Call History</h3><span>{{emergency_pending}} awaiting follow-up</span></div>
     <div class="card" style="margin-bottom:24px;border-color:#efc8c8">
-      <p class="muted">This log records SOS-button taps and callback requests made inside the app. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
+      <p class="muted">This log records emergency-service number taps made inside the app. Student callback registrations are not shown in the admin dashboard. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
       {% for e in emergency_calls %}
       <article class="admin-card" style="border-color:#f0dddd;margin-top:12px">
         <div class="admin-top">
@@ -931,7 +932,7 @@ def admin_dashboard():
           </form>
         </div>
       </article>
-      {% else %}<div class="empty">No emergency events or callback requests recorded yet.</div>{% endfor %}
+      {% else %}<div class="empty">No emergency-service taps recorded yet.</div>{% endfor %}
     </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
