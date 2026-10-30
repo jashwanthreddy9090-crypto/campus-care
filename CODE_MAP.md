@@ -21,7 +21,7 @@ The application currently lives mainly in `app.py`. It contains Flask setup, dat
 | Complaint form, status, admin actions | Complaint-related route handlers and their embedded templates | Preserve complaint IDs, status history and existing records |
 | Lost & Found | Lost & Found routes and embedded templates | Image upload handling and persistence on Vercel |
 | Notices and notifications | Notice/notification handlers and embedded templates | Read/unread state and account ownership |
-| Help & Support / emergency contacts | Help/support route, `CONTACTS`, and related template | Keep verified contact details; do not imply an alert was sent if it was not |
+| Emergency SOS history, callback requests and admin follow-up | `emergency_call_logs`, `/emergency/sos-log`, `/emergency/request-callback`, `/admin/emergency-call/<id>` and `/webhooks/telephony/calls` in `app.py` | SOS taps are not proof a call completed; incoming phone-call logs require a configured telephony provider and `TELEPHONY_WEBHOOK_TOKEN` |
 | Colors, spacing, responsive layout or mobile menu | Embedded CSS and JavaScript in the main page/template strings | Test narrow mobile widths and all role dashboards |
 | Packages | `requirements.txt` | Vercel build compatibility |
 | Vercel deployment region/config | `vercel.json` | Do not change production deployment settings casually |
@@ -102,6 +102,16 @@ Only create a module when the corresponding code is actually moved and imported 
 - The Neon pool remains capped at five connections per running app instance. When all are busy, a request waits briefly (up to about 1.5 seconds) for a connection; if the pool remains full, the app returns HTTP 503 with `Retry-After: 2` rather than failing with an unhandled pool-exhaustion error.
 - This is graceful overload handling, not a guarantee against all traffic spikes. Real capacity depends on Vercel concurrency/scaling, Neon limits, request duration and other database clients. Load-test only a Preview deployment and monitor Vercel/Neon metrics before making capacity claims.
 - In an immediate emergency in India, call 112 directly; do not wait for the website to recover.
+
+### Emergency Call History & Callback Management
+
+- `emergency_call_logs` is created additively by `initialize_database()`; it does not replace or delete existing tables or records.
+- The SOS shortcut makes a best-effort request to `/emergency/sos-log` before opening `tel:112`. This records a tap, not a confirmed or completed phone call.
+- Students can submit a campus callback request from the Emergency & SOS page. The request includes a phone number, emergency category and optional details.
+- Admins see recent events in the Admin Dashboard, can use `tel:<caller number>` to call back, and can update the callback status and notes.
+- To capture real incoming calls made to a phone number, connect a telephony provider to `POST /webhooks/telephony/calls`. Set `TELEPHONY_WEBHOOK_TOKEN` in the Vercel Preview environment and configure the provider to send the same value in the `X-Campus-Webhook-Token` header. Provider payloads must include a caller number and a unique call ID. This generic endpoint is not a substitute for completing and testing a provider-specific integration.
+- Until a provider is configured and tested, only app SOS taps and app callback requests are recorded; calls made directly to a normal mobile phone are not automatically visible to the website.
+- Keep the admin dashboard restricted to authorized accounts. Mobile numbers and callback notes are personal information and should only be retained as long as operationally necessary.
 
 ## 5. Rules that prevent accidental damage
 
