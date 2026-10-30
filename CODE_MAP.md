@@ -13,8 +13,8 @@ The application currently lives mainly in `app.py`. It contains Flask setup, dat
 | App startup, Flask configuration, request guards | Top of `app.py` | Route names referenced by guards and redirects |
 | Database connection / Neon PostgreSQL / local SQLite | `DATABASE_URL`, `PostgresConnection`, `get_db()` | Connection pooling, transaction cleanup, placeholders and serverless limits |
 | Database tables or upgrades | `initialize_database()` | Existing users, complaints and records; use additive migrations and never drop tables casually |
-| Complaint categories and automatic priority | `COMPLAINT_CATEGORIES`, `PRIORITIES`, `priority_for_category()` | Safety categories must not be assigned a lower priority by form input |
-| Campus contact numbers | `CONTACTS` | Verify numbers with the campus before relying on them |
+| Complaint categories, priority rules, statuses and allowed image extensions | `campus_config.py` (`CATEGORIES`, `PRIORITIES`, `STATUSES`, `ALLOWED_EXTENSIONS`, `priority_for_category()`) | Safety categories must not be assigned a lower priority by form input |
+| Campus contact numbers | `campus_config.py` → `CONTACTS` | Verify numbers with the campus before relying on them |
 | Login, sessions, passwords and role permissions | Authentication and account routes in `app.py` | Password hashing, admin-only account creation, session checks |
 | Student profile or dashboard links | Embedded HTML/template strings in `app.py` | Keep route endpoints and `url_for(...)` names in sync |
 | Complaint form, status, admin actions | Complaint-related route handlers and their embedded templates | Preserve complaint IDs, status history and existing records |
@@ -25,7 +25,7 @@ The application currently lives mainly in `app.py`. It contains Flask setup, dat
 | Packages | `requirements.txt` | Vercel build compatibility |
 | Vercel deployment region/config | `vercel.json` | Do not change production deployment settings casually |
 
-The exact implementation is the source of truth. Use GitHub's file view and search for the function/constant name before editing; do not rely on line numbers because they change as the code evolves.
+The shared category/priority/status/contact rules have been extracted to `campus_config.py`; `app.py` imports them. Database access, routes and embedded templates remain in `app.py` for now. The exact implementation is the source of truth. Use GitHub's file view and search for the function/constant name before editing; do not rely on line numbers because they change as the code evolves.
 
 ## 2. Recommended target structure
 
@@ -71,13 +71,14 @@ Only create a module when the corresponding code is actually moved and imported 
 - Fix outdated documentation separately from application behaviour.
 
 ### Stage 2 — Separate configuration and database code
-- Move environment/configuration values into `config.py`.
+- **Completed first sub-step:** shared complaint categories, priority rules, statuses, allowed image extensions, contact directory and campus-email validation are in `campus_config.py`.
+- Next, move environment/configuration values into `config.py`.
 - Move the Neon connection pool, PostgreSQL adapter, `get_db()`, and schema initialization into `db/`.
 - Preserve current environment-variable names and database compatibility.
 - Verify startup and basic reads/writes against a preview database before proceeding.
 
 ### Stage 3 — Separate business rules and route groups
-- Extract pure business rules first (such as complaint priority) into `services/`.
+- Complaint priority and shared validation currently live in `campus_config.py`; if later moved into `services/`, keep the import compatibility and add tests first.
 - Move routes in small groups, beginning with low-coupling support pages, then student and admin flows.
 - Preserve every existing endpoint name or update every reference consistently.
 - Do not remove or rename routes just to make the structure look cleaner.
