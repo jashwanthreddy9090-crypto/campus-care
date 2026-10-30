@@ -21,7 +21,7 @@ Keep database migrations additive and preserve existing records.
 
 # 1. IMPORTS AND FLASK APPLICATION SETUP
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_from_directory, jsonify, Response, abort
-import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading, time
+import sqlite3, os, uuid, re, json, logging, base64, io, csv, threading, time, hmac
 from urllib.parse import urlparse, quote_plus
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -343,6 +343,27 @@ def initialize_database():
         status TEXT NOT NULL DEFAULT 'Open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS emergency_call_logs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        caller_mobile TEXT NOT NULL DEFAULT '',
+        caller_name TEXT DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'sos_button',
+        direction TEXT NOT NULL DEFAULT 'outbound',
+        call_status TEXT NOT NULL DEFAULT 'SOS tapped',
+        emergency_type TEXT DEFAULT 'General',
+        details TEXT DEFAULT '',
+        callback_status TEXT NOT NULL DEFAULT 'Pending',
+        callback_notes TEXT DEFAULT '',
+        provider_call_id TEXT UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        callback_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_emergency_calls_status_created
+        ON emergency_call_logs(callback_status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_emergency_calls_mobile_created
+        ON emergency_call_logs(caller_mobile, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_notifications_account ON notifications(account_type, account_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_lost_found_status ON lost_found(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_notices_active ON notices(active, created_at);
@@ -748,7 +769,7 @@ def worker_dashboard():
     con = get_db()
     jobs = con.execute("SELECT c.*,u.name student_name,u.room FROM complaints c JOIN users u ON u.id=c.user_id WHERE c.assigned_worker_id=? ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END, c.created_at DESC", (session['worker_id'],)).fetchall()
     con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p><form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form></div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112" onclick="try{fetch('{{url_for('log_sos_tap')}}',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(function(){});}catch(e){}"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p><form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form></div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
     return render_page(body, 'Worker Portal', 'WORKER OPERATIONS')
 
 @app.route('/worker/job/<int:id>', methods=['POST'])
@@ -775,7 +796,7 @@ def logout(): session.clear(); return redirect(url_for('login'))
 def student_dashboard():
     if not require('student'): return redirect(url_for('login'))
     con=get_db(); cs=con.execute('SELECT * FROM complaints WHERE user_id=? ORDER BY created_at DESC',(session['user_id'],)).fetchall(); notices=con.execute('SELECT * FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 4').fetchall(); unread=con.execute("SELECT COUNT(*) n FROM notifications WHERE account_type='user' AND account_id=? AND is_read=0",(session['user_id'],)).fetchone()['n']; con.close(); counts={s:sum(1 for c in cs if c['status']==s) for s in STATUSES}
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your campus today</h3><span>{{unread}} unread notifications</span></div><div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('notices_page')}}"><span class="help-quick-icon">▤</span><span><b>Campus notices</b><small>Latest announcements</small></span></a><a class="help-quicklink" href="{{url_for('notifications_page')}}"><span class="help-quick-icon">♢</span><span><b>Notifications · {{unread}}</b><small>Complaint and campus updates</small></span></a><a class="help-quicklink" href="{{url_for('lost_found_page')}}"><span class="help-quick-icon">⌕</span><span><b>Lost & Found</b><small>Find or report an item</small></span></a><a class="help-quicklink" href="{{url_for('help_support')}}"><span class="help-quick-icon">?</span><span><b>Help &amp; Support</b><small>Get help with app issues and campus support</small></span></a></div><div class="section-title"><h3>Recent campus notices</h3><span><a href="{{url_for('notices_page')}}">View all →</a></span></div><div class="complaints">{% for n in notices %}<div class="complaint-row"><div><div class="row-meta">{{n['category']}} · {{n['created_at']}}</div><div class="row-title">{{n['title']}}</div><div class="row-sub">{{n['body']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else 'submitted'}}">{{n['priority']}}</span></div>{% else %}<div class="empty">No campus notices have been published yet.</div>{% endfor %}</div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div>''',cs=cs,counts=counts,notices=notices,unread=unread)
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112" onclick="try{fetch('{{url_for('log_sos_tap')}}',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(function(){});}catch(e){}"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your campus today</h3><span>{{unread}} unread notifications</span></div><div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('notices_page')}}"><span class="help-quick-icon">▤</span><span><b>Campus notices</b><small>Latest announcements</small></span></a><a class="help-quicklink" href="{{url_for('notifications_page')}}"><span class="help-quick-icon">♢</span><span><b>Notifications · {{unread}}</b><small>Complaint and campus updates</small></span></a><a class="help-quicklink" href="{{url_for('lost_found_page')}}"><span class="help-quick-icon">⌕</span><span><b>Lost & Found</b><small>Find or report an item</small></span></a><a class="help-quicklink" href="{{url_for('help_support')}}"><span class="help-quick-icon">?</span><span><b>Help &amp; Support</b><small>Get help with app issues and campus support</small></span></a></div><div class="section-title"><h3>Recent campus notices</h3><span><a href="{{url_for('notices_page')}}">View all →</a></span></div><div class="complaints">{% for n in notices %}<div class="complaint-row"><div><div class="row-meta">{{n['category']}} · {{n['created_at']}}</div><div class="row-title">{{n['title']}}</div><div class="row-sub">{{n['body']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else 'submitted'}}">{{n['priority']}}</span></div>{% else %}<div class="empty">No campus notices have been published yet.</div>{% endfor %}</div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div>''',cs=cs,counts=counts,notices=notices,unread=unread)
     return render_page(body,'Student Dashboard','STUDENT SPACE')
 
 @app.route('/complaint/new',methods=['GET','POST'])
@@ -848,6 +869,15 @@ def admin_dashboard():
     submitted = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status='Submitted'").fetchone()['n']
     active = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Assigned','In Progress')").fetchone()['n']
     resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
+    emergency_pending = con.execute("SELECT COUNT(*) AS n FROM emergency_call_logs WHERE callback_status IN ('Pending','In Progress','Unable to reach')").fetchone()['n']
+    emergency_calls = con.execute("""
+        SELECT e.*, u.name AS student_name, u.student_id
+        FROM emergency_call_logs e
+        LEFT JOIN users u ON u.id = e.user_id
+        ORDER BY CASE e.callback_status WHEN 'Pending' THEN 0 WHEN 'In Progress' THEN 1 WHEN 'Unable to reach' THEN 2 ELSE 3 END,
+                 e.created_at DESC
+        LIMIT 100
+    """).fetchall()
     complaints = con.execute('''
         SELECT c.*, u.name AS student_name, u.room,
                w.name AS worker_name
@@ -878,6 +908,31 @@ def admin_dashboard():
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
+    <div class="section-title" style="margin-top:8px"><h3>🚨 Emergency Call History & Callback Queue</h3><span>{{emergency_pending}} awaiting follow-up</span></div>
+    <div class="card" style="margin-bottom:24px;border-color:#efc8c8">
+      <p class="muted">This log records SOS-button taps and callback requests made inside the app. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
+      {% for e in emergency_calls %}
+      <article class="admin-card" style="border-color:#f0dddd;margin-top:12px">
+        <div class="admin-top">
+          <div>
+            <div class="admin-meta">EMG-{{e['id']}} · {{e['source']}} · {{e['direction']}} · {{e['created_at']}}</div>
+            <div class="admin-title">{{e['caller_name'] or e['student_name'] or 'Unknown caller'}} · {{e['caller_mobile'] or 'No number supplied'}}</div>
+            <div class="admin-meta">Student ID: {{e['student_id'] or '—'}} · Type: {{e['emergency_type'] or 'General'}} · Call event: {{e['call_status']}}</div>
+          </div>
+          <span class="chip {{'emergency' if e['callback_status'] in ['Pending','Unable to reach'] else ('resolved' if e['callback_status'] in ['Contacted','Resolved'] else 'progress')}}">{{e['callback_status']}}</span>
+        </div>
+        {% if e['details'] %}<p class="admin-desc">{{e['details']}}</p>{% endif %}
+        <div class="admin-form" style="align-items:end">
+          {% if e['caller_mobile'] %}<a class="btn btn-primary" href="tel:{{e['caller_mobile']}}">☎ Call back</a>{% endif %}
+          <form method="POST" action="{{url_for('admin_update_emergency_call', call_id=e['id'])}}" style="display:flex;gap:10px;flex:1;flex-wrap:wrap;align-items:end">
+            <div style="min-width:150px;flex:0.7"><label>Callback status</label><select name="callback_status">{% for st in ['Pending','In Progress','Contacted','Unable to reach','Resolved','Cancelled'] %}<option value="{{st}}" {{'selected' if e['callback_status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
+            <div style="min-width:180px;flex:1"><label>Callback notes</label><input name="callback_notes" value="{{e['callback_notes'] or ''}}" maxlength="500" placeholder="Outcome / next action"></div>
+            <button class="btn btn-light" type="submit">Save</button>
+          </form>
+        </div>
+      </article>
+      {% else %}<div class="empty">No emergency events or callback requests recorded yet.</div>{% endfor %}
+    </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
     {% for c in complaints %}
@@ -896,7 +951,7 @@ def admin_dashboard():
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
     </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
-       complaints=complaints, workers=workers, statuses=STATUSES)
+       complaints=complaints, workers=workers, statuses=STATUSES, emergency_calls=emergency_calls, emergency_pending=emergency_pending)
     return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
 
 
@@ -908,6 +963,109 @@ def update_complaint(id):
     if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
     if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
     flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/emergency-call/<int:call_id>', methods=['POST'])
+def admin_update_emergency_call(call_id):
+    if not require('admin') or not session.get('user_id'):
+        return redirect(url_for('login'))
+    allowed = {'Pending', 'In Progress', 'Contacted', 'Unable to reach', 'Resolved', 'Cancelled'}
+    status = request.form.get('callback_status', 'Pending').strip()
+    if status not in allowed:
+        status = 'Pending'
+    notes = request.form.get('callback_notes', '').strip()[:500]
+    con = get_db()
+    row = con.execute('SELECT id FROM emergency_call_logs WHERE id=?', (call_id,)).fetchone()
+    if not row:
+        con.close()
+        flash('Emergency call record was not found.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    if status in {'Contacted', 'Unable to reach', 'Resolved'}:
+        con.execute('UPDATE emergency_call_logs SET callback_status=?, callback_notes=?, callback_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, notes, call_id))
+    else:
+        con.execute('UPDATE emergency_call_logs SET callback_status=?, callback_notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, notes, call_id))
+    con.commit()
+    con.close()
+    flash('Emergency callback record updated.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/webhooks/telephony/calls', methods=['POST'])
+def telephony_call_webhook():
+    # Configure TELEPHONY_WEBHOOK_TOKEN and set the same value as the provider's
+    # X-Campus-Webhook-Token header before enabling incoming-call ingestion.
+    expected = os.environ.get('TELEPHONY_WEBHOOK_TOKEN', '').strip()
+    supplied = request.headers.get('X-Campus-Webhook-Token', '')
+    if not expected:
+        return jsonify(error='Telephony webhook is not configured'), 503
+    if not hmac.compare_digest(supplied, expected):
+        abort(403)
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    caller = str(payload.get('From') or payload.get('from') or payload.get('caller') or payload.get('caller_mobile') or '').strip()[:40]
+    provider_call_id = str(payload.get('CallSid') or payload.get('call_id') or payload.get('callId') or payload.get('id') or '').strip()[:160]
+    direction = str(payload.get('Direction') or payload.get('direction') or 'inbound').strip().lower()
+    call_status = str(payload.get('CallStatus') or payload.get('call_status') or payload.get('status') or 'received').strip()[:80]
+    destination = str(payload.get('To') or payload.get('to') or '').strip()[:40]
+    if direction not in {'inbound', 'incoming', 'inbound-api'}:
+        return jsonify(ok=True, ignored='non-inbound call'), 200
+    if not caller or not provider_call_id:
+        return jsonify(error='Caller number and unique provider call ID are required'), 400
+    con = get_db()
+    existing = con.execute('SELECT id FROM emergency_call_logs WHERE provider_call_id=?', (provider_call_id,)).fetchone()
+    if existing:
+        con.execute('UPDATE emergency_call_logs SET call_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', (call_status, existing['id']))
+        con.commit()
+        con.close()
+        return jsonify(ok=True, updated=True), 200
+    con.execute('''INSERT INTO emergency_call_logs
+        (caller_mobile, source, direction, call_status, emergency_type, details, callback_status, provider_call_id)
+        VALUES (?, 'telephony_webhook', 'inbound', ?, 'Incoming call', ?, 'Pending', ?)''',
+        (caller, call_status, ('Provider destination: ' + destination) if destination else '', provider_call_id))
+    con.commit()
+    con.close()
+    return jsonify(ok=True, recorded=True), 201
+
+
+@app.route('/emergency/sos-log', methods=['POST'])
+def log_sos_tap():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify(ok=False, error='Sign in to link an SOS event to your account'), 401
+    con = get_db()
+    user = con.execute('SELECT id, name, mobile FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        con.close()
+        return jsonify(ok=False, error='Account not found'), 401
+    con.execute('''INSERT INTO emergency_call_logs
+        (user_id, caller_mobile, caller_name, source, direction, call_status, emergency_type, details, callback_status)
+        VALUES (?, ?, ?, 'sos_button', 'outbound', 'SOS button tapped; phone dialler may open', 'General', 'SOS shortcut selected in Campus Care 360. This does not confirm a call was completed.', 'Pending')''',
+        (user['id'], user['mobile'] or '', user['name'] or ''))
+    con.commit()
+    con.close()
+    return jsonify(ok=True), 201
+
+
+@app.route('/emergency/request-callback', methods=['POST'])
+def request_emergency_callback():
+    if not require('student') or not session.get('user_id'):
+        flash('Please sign in as a student to request a campus callback.', 'error')
+        return redirect(url_for('login'))
+    mobile = re.sub(r'[^0-9+]', '', request.form.get('mobile', '').strip())[:16]
+    emergency_type = request.form.get('emergency_type', 'General').strip()[:80] or 'General'
+    details = request.form.get('details', '').strip()[:1000]
+    if not re.fullmatch(r'\+?[0-9]{10,15}', mobile):
+        flash('Enter a valid mobile number so the campus team can call you back.', 'error')
+        return redirect(url_for('emergency_help'))
+    con = get_db()
+    user = con.execute('SELECT id, name FROM users WHERE id=?', (session['user_id'],)).fetchone()
+    con.execute('''INSERT INTO emergency_call_logs
+        (user_id, caller_mobile, caller_name, source, direction, call_status, emergency_type, details, callback_status)
+        VALUES (?, ?, ?, 'callback_request', 'inbound', 'Callback requested through app', ?, ?, 'Pending')''',
+        (session['user_id'], mobile, user['name'] if user else session.get('name', 'Student'), emergency_type, details))
+    con.commit()
+    con.close()
+    flash('Your campus callback request has been recorded. For immediate danger, call 112 directly; do not wait for a callback.', 'success')
+    return redirect(url_for('emergency_help'))
 
 
 @app.route('/admin/export-data.xlsx')
@@ -1158,7 +1316,9 @@ def admin_workers():
 # 11. ROUTES — CAMPUS SUPPORT, CONTACTS, AND PROFILES
 @app.route('/emergency')
 def emergency_help():
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">CAMPUS SAFETY</div><h1>Emergency & SOS</h1><p>Quick access to emergency services and campus support contacts.</p></div><a class="btn btn-light" href="{{url_for('home')}}">← Back to dashboard</a></div><section class="emergency-panel"><div class="hero-kicker">IMMEDIATE DANGER</div><h2>Get help now.</h2><p>If someone is in immediate danger, move to a safe place if possible and call the appropriate emergency service. The SOS button opens your phone dialler; it does not silently send an alert.</p><div class="emergency-number">112</div><a class="emergency-call" href="tel:112">🆘 Call Emergency Services · 112</a></section><div class="contact-grid"><div class="contact-card"><div class="tile-icon">🚑</div><h3>Ambulance / Medical</h3><p class="muted">For serious injury or a medical emergency, call 112 and clearly state your location.</p><a class="phone" href="tel:112">☎ Call 112</a></div><div class="contact-card"><div class="tile-icon">🔥</div><h3>Fire Emergency</h3><p class="muted">For fire or smoke, evacuate using safe exits. Do not use lifts or re-enter the building.</p><a class="phone" href="tel:112">☎ Call 112</a></div><div class="contact-card"><div class="tile-icon">🛡️</div><h3>Police / Security</h3><p class="muted">For immediate threats, get to a secure location and contact emergency services or campus security.</p><a class="phone" href="tel:112">☎ Call 112</a></div></div><div class="card" style="margin-top:20px"><h3 style="margin-top:0">Campus support directory</h3><p class="muted">Campus numbers shown here may be demo numbers. Confirm and replace them with your institution’s official contacts before publishing.</p><div class="contact-grid">{% for name,dept,mobile in contacts %}<div class="contact-card"><h3>{{name}}</h3><div class="muted">{{dept}}</div><a class="phone" href="tel:{{mobile}}">☎ {{mobile}}</a></div>{% endfor %}</div></div>''', contacts=CONTACTS)
+    user = current_user()
+    registered_mobile = (user['mobile'] or '') if user else ''
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">CAMPUS SAFETY</div><h1>Emergency & SOS</h1><p>Quick access to emergency services and campus support contacts.</p></div><a class="btn btn-light" href="{{url_for('home')}}">← Back to dashboard</a></div><section class="emergency-panel"><div class="hero-kicker">IMMEDIATE DANGER</div><h2>Get help now.</h2><p>If someone is in immediate danger, move to a safe place if possible and call the appropriate emergency service. The SOS button opens your phone dialler; it does not silently send an alert.</p><div class="emergency-number">112</div><a class="emergency-call" href="tel:112" onclick="try{fetch('{{url_for('log_sos_tap')}}',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(function(){});}catch(e){}">🆘 Call Emergency Services · 112</a></section><div class="card" style="margin:20px 0;border-color:#e7c7c7"><h3 style="margin-top:0">Request a campus callback</h3><p class="muted">Use this for campus follow-up. It is not a substitute for calling 112 in an immediate emergency.</p><form method="POST" action="{{url_for('request_emergency_callback')}}" class="form-grid"><div><label>Mobile number for callback</label><input type="tel" name="mobile" value="{{registered_mobile}}" maxlength="16" pattern="\\+?[0-9]{10,15}" placeholder="Your registered mobile number" required></div><div><label>Emergency type</label><select name="emergency_type"><option>General</option><option>Medical</option><option>Safety / Security</option><option>Fire</option><option>Hostel / Campus issue</option></select></div><div class="full"><label>Details (optional)</label><textarea name="details" maxlength="1000" placeholder="Briefly explain what help is needed"></textarea></div><div class="full"><button class="btn btn-primary" type="submit">Request campus callback</button></div></form></div><div class="contact-grid"><div class="contact-card"><div class="tile-icon">🚑</div><h3>Ambulance / Medical</h3><p class="muted">For serious injury or a medical emergency, call 112 and clearly state your location.</p><a class="phone" href="tel:112">☎ Call 112</a></div><div class="contact-card"><div class="tile-icon">🔥</div><h3>Fire Emergency</h3><p class="muted">For fire or smoke, evacuate using safe exits. Do not use lifts or re-enter the building.</p><a class="phone" href="tel:112">☎ Call 112</a></div><div class="contact-card"><div class="tile-icon">🛡️</div><h3>Police / Security</h3><p class="muted">For immediate threats, get to a secure location and contact emergency services or campus security.</p><a class="phone" href="tel:112">☎ Call 112</a></div></div><div class="card" style="margin-top:20px"><h3 style="margin-top:0">Campus support directory</h3><p class="muted">Campus numbers shown here may be demo numbers. Confirm and replace them with your institution’s official contacts before publishing.</p><div class="contact-grid">{% for name,dept,mobile in contacts %}<div class="contact-card"><h3>{{name}}</h3><div class="muted">{{dept}}</div><a class="phone" href="tel:{{mobile}}">☎ {{mobile}}</a></div>{% endfor %}</div></div>''', contacts=CONTACTS)
     return render_page(body, 'Emergency & SOS', 'CAMPUS SAFETY')
 
 @app.route('/contacts')
