@@ -12,6 +12,7 @@ The application currently lives mainly in `app.py`. It contains Flask setup, dat
 |---|---|---|
 | App startup, Flask configuration, request guards | Top of `app.py` | Route names referenced by guards and redirects |
 | Database connection / Neon PostgreSQL / local SQLite | `DATABASE_URL`, `PostgresConnection`, `get_db()` | Connection pooling, transaction cleanup, placeholders and serverless limits |
+| Brief database-pool saturation / service health | `DatabaseBusyError`, `_get_pooled_connection()`, `/healthz` in `app.py` | A busy pool returns HTTP 503 with `Retry-After: 2`; `/healthz` does not prove Neon is healthy |
 | Database tables or upgrades | `initialize_database()` | Existing users, complaints and records; use additive migrations and never drop tables casually |
 | Complaint categories, priority rules, statuses and allowed image extensions | `campus_config.py` (`CATEGORIES`, `PRIORITIES`, `STATUSES`, `ALLOWED_EXTENSIONS`, `priority_for_category()`) | Safety categories must not be assigned a lower priority by form input |
 | Campus contact numbers | `campus_config.py` → `CONTACTS` | Verify numbers with the campus before relying on them |
@@ -94,7 +95,15 @@ Only create a module when the corresponding code is actually moved and imported 
 - Compare important pages and workflows against the current preview.
 - Merge to production only after the owner explicitly approves.
 
-## 4. Rules that prevent accidental damage
+## 4. Emergency traffic and temporary database saturation
+
+- The Emergency & SOS page currently opens the phone dialler with `tel:112`; it does **not** automatically send an SOS alert or contact multiple people from the server.
+- `/healthz` is a lightweight platform check and intentionally does not consume a Neon connection. It confirms that the Flask handler responds, not that database reads/writes are working.
+- The Neon pool remains capped at five connections per running app instance. When all are busy, a request waits briefly (up to about 1.5 seconds) for a connection; if the pool remains full, the app returns HTTP 503 with `Retry-After: 2` rather than failing with an unhandled pool-exhaustion error.
+- This is graceful overload handling, not a guarantee against all traffic spikes. Real capacity depends on Vercel concurrency/scaling, Neon limits, request duration and other database clients. Load-test only a Preview deployment and monitor Vercel/Neon metrics before making capacity claims.
+- In an immediate emergency in India, call 112 directly; do not wait for the website to recover.
+
+## 5. Rules that prevent accidental damage
 
 1. **Never reset or recreate the production database** as part of a code-organization change.
 2. Keep database changes additive; do not delete tables or records during refactoring.
@@ -105,7 +114,7 @@ Only create a module when the corresponding code is actually moved and imported 
 7. Check Vercel build logs and test the preview URL after each deployment.
 8. A refactor should change structure, not user-visible behaviour. Feature changes belong in separate commits.
 
-## 5. Definition of done for each stage
+## 6. Definition of done for each stage
 
 - The code imports and the application starts.
 - No unrelated route or feature disappears.
