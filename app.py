@@ -869,14 +869,12 @@ def admin_dashboard():
     submitted = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status='Submitted'").fetchone()['n']
     active = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Assigned','In Progress')").fetchone()['n']
     resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
-    emergency_pending = con.execute("SELECT COUNT(*) AS n FROM emergency_call_logs WHERE source <> 'callback_request' AND callback_status IN ('Pending','In Progress','Unable to reach')").fetchone()['n']
     emergency_calls = con.execute("""
         SELECT e.*, u.name AS student_name, u.student_id
         FROM emergency_call_logs e
         LEFT JOIN users u ON u.id = e.user_id
         WHERE e.source <> 'callback_request'
-        ORDER BY CASE e.callback_status WHEN 'Pending' THEN 0 WHEN 'In Progress' THEN 1 WHEN 'Unable to reach' THEN 2 ELSE 3 END,
-                 e.created_at DESC
+        ORDER BY e.created_at DESC
         LIMIT 100
     """).fetchall()
     complaints = con.execute('''
@@ -909,9 +907,9 @@ def admin_dashboard():
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
-    <div class="section-title" style="margin-top:8px"><h3>🚨 Emergency Call History</h3><span>{{emergency_pending}} awaiting follow-up</span></div>
+    <div class="section-title" style="margin-top:8px"><h3>🚨 SOS &amp; Emergency History</h3></div>
     <div class="card" style="margin-bottom:24px;border-color:#efc8c8">
-      <p class="muted">This log records emergency-service number taps made inside the app. Student callback registrations are not shown in the admin dashboard. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
+      <p class="muted">This section shows SOS and emergency-service call events recorded by the app. Callback requests and callback management are not part of this admin section. Actual incoming phone calls appear here only after an authorized telephony provider is configured to send its webhook.</p>
       {% for e in emergency_calls %}
       <article class="admin-card" style="border-color:#f0dddd;margin-top:12px">
         <div class="admin-top">
@@ -943,7 +941,7 @@ def admin_dashboard():
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
     </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
-       complaints=complaints, workers=workers, statuses=STATUSES, emergency_calls=emergency_calls, emergency_pending=emergency_pending)
+       complaints=complaints, workers=workers, statuses=STATUSES, emergency_calls=emergency_calls)
     return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
 
 
@@ -955,31 +953,6 @@ def update_complaint(id):
     if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
     if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
     flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
-
-
-@app.route('/admin/emergency-call/<int:call_id>', methods=['POST'])
-def admin_update_emergency_call(call_id):
-    if not require('admin') or not session.get('user_id'):
-        return redirect(url_for('login'))
-    allowed = {'Pending', 'In Progress', 'Contacted', 'Unable to reach', 'Resolved', 'Cancelled'}
-    status = request.form.get('callback_status', 'Pending').strip()
-    if status not in allowed:
-        status = 'Pending'
-    notes = request.form.get('callback_notes', '').strip()[:500]
-    con = get_db()
-    row = con.execute('SELECT id FROM emergency_call_logs WHERE id=?', (call_id,)).fetchone()
-    if not row:
-        con.close()
-        flash('Emergency call record was not found.', 'error')
-        return redirect(url_for('admin_dashboard'))
-    if status in {'Contacted', 'Unable to reach', 'Resolved'}:
-        con.execute('UPDATE emergency_call_logs SET callback_status=?, callback_notes=?, callback_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, notes, call_id))
-    else:
-        con.execute('UPDATE emergency_call_logs SET callback_status=?, callback_notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, notes, call_id))
-    con.commit()
-    con.close()
-    flash('Emergency callback record updated.', 'success')
-    return redirect(url_for('admin_dashboard'))
 
 
 @app.route('/webhooks/telephony/calls', methods=['POST'])
