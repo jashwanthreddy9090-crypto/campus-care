@@ -1127,6 +1127,16 @@ def admin_export_data():
             LEFT JOIN users u ON u.id = lf.user_id
             ORDER BY lf.created_at DESC, lf.id DESC
         """).fetchall()
+        callback_requests = con.execute("""
+            SELECT e.id, e.user_id, u.name AS student_name, u.student_id,
+                   e.caller_mobile, e.emergency_type, e.details, e.source,
+                   e.call_status, e.callback_status, e.callback_notes,
+                   e.created_at, e.updated_at, e.callback_at
+            FROM emergency_call_logs e
+            LEFT JOIN users u ON u.id = e.user_id
+            WHERE e.source = 'callback_request'
+            ORDER BY e.created_at DESC, e.id DESC
+        """).fetchall()
     finally:
         con.close()
 
@@ -1147,9 +1157,14 @@ def admin_export_data():
     for row in lost_found:
         lf.append([row[key] for key in ('id','user_id','student_name','student_email','student_id','room','item_type','title','description','location','item_date','category','status','has_photo','created_at')])
 
+    cb = wb.create_sheet('Callback Requests')
+    cb.append(['Request ID', 'Student Account ID', 'Student Name', 'Student ID', 'Callback Mobile', 'Category', 'Details', 'Source', 'Request Event', 'Callback Status', 'Admin Notes', 'Requested At', 'Updated At', 'Callback At'])
+    for row in callback_requests:
+        cb.append([row[key] for key in ('id','user_id','student_name','student_id','caller_mobile','emergency_type','details','source','call_status','callback_status','callback_notes','created_at','updated_at','callback_at')])
+
     # Open the workbook directly on Complaints so admins immediately see the exported reports.
-    # Keep every registered complaint, including records older than the dashboard's 100-row display.
-    wb._sheets = [cw, ws, lf]
+    # Keep all complaint, lost-and-found and callback records in the export.
+    wb._sheets = [cw, ws, lf, cb]
     wb.active = 0
     cw.sheet_view.showGridLines = True
     cw.freeze_panes = 'A2'
@@ -1161,7 +1176,8 @@ def admin_export_data():
     summary.append(['Login accounts', len(accounts)])
     summary.append(['Registered complaints', len(complaints)])
     summary.append(['Lost & Found registrations', len(lost_found)])
-    summary.append(['Note', 'Open the Complaints tab to view all complaint records. Passwords and password hashes are excluded.'])
+    summary.append(['Callback requests', len(callback_requests)])
+    summary.append(['Note', 'Open the Complaints tab to view all complaint records. Callback Requests includes emergency and campus-support callback requests. Passwords and password hashes are excluded.'])
     summary.freeze_panes = 'A2'
     summary.column_dimensions['A'].width = 38
     summary.column_dimensions['B'].width = 90
