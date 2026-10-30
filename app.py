@@ -874,7 +874,7 @@ def admin_dashboard():
         FROM emergency_call_logs e
         LEFT JOIN users u ON u.id = e.user_id
         WHERE LOWER(COALESCE(e.source, '')) NOT IN ('callback_request', 'callback')
-          AND LOWER(COALESCE(e.call_status, '')) NOT LIKE '%callback%'
+          AND LOWER(COALESCE(e.call_status, '')) NOT LIKE '%%callback%%'
         ORDER BY e.created_at DESC
         LIMIT 100
     """).fetchall()
