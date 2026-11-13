@@ -52,7 +52,7 @@ _CAMPUS_CARE_LOGO_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
 @app.route("/campus-care-logo.png")
 def campus_care_logo():
-    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 application = app  # WSGI alias for deployment platforms
 app.secret_key = os.environ.get("SECRET_KEY", "")
