@@ -29,6 +29,9 @@ from campus_config import CATEGORIES, PRIORITIES, STATUSES, ALLOWED_EXTENSIONS, 
 
 app = Flask(__name__)
 
+# Public visitor landing page (kept separate from the core application routes).
+from landing_page import LANDING_PAGE
+
 
 @app.before_request
 def disable_worker_portal():
@@ -558,9 +561,10 @@ REGISTER = r'''<div class="auth-card"><div class="auth-brand"><img class="upload
 # 8. ROUTES — HOME AND AUTHENTICATION
 @app.route('/')
 def home():
-    # Require an authenticated account before opening any dashboard.
+    # Visitors see the public landing page first. Existing authenticated users
+    # continue directly to their existing role-specific dashboard.
     if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
+        return render_template_string(LANDING_PAGE)
 
     role = session.get('role')
     if role == 'worker':
