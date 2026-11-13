@@ -10,25 +10,25 @@ LANDING_PAGE = r"""
 <meta name="description" content="Campus Care 360 is a campus complaint management and hostel support platform. Submit campus concerns, track complaint updates and access Lost &amp; Found and student support in one place.">
 <meta name="keywords" content="Campus Care 360, campus complaint management, hostel complaint tracking, student support portal, campus helpdesk, Lost and Found">
 <meta name="robots" content="index, follow, max-image-preview:large">
-<link rel="canonical" href="https://campus-care-tech-care2.vercel.app/">
+<link rel="canonical" href="https://campus-care-pearl-one.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Campus Care 360">
 <meta property="og:title" content="Campus Care 360 | Campus Complaint &amp; Hostel Support Portal">
 <meta property="og:description" content="A connected campus support portal to submit concerns, track complaints and access student support services.">
-<meta property="og:url" content="https://campus-care-tech-care2.vercel.app/">
-<meta property="og:image" content="https://campus-care-tech-care2.vercel.app/campus-care-logo.png">
+<meta property="og:url" content="https://campus-care-pearl-one.vercel.app/">
+<meta property="og:image" content="https://campus-care-pearl-one.vercel.app/campus-care-logo.png">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Campus Care 360 | Campus Support Portal">
 <meta name="twitter:description" content="Submit campus concerns, track complaint updates and access student support in one place.">
-<meta name="twitter:image" content="https://campus-care-tech-care2.vercel.app/campus-care-logo.png">
+<meta name="twitter:image" content="https://campus-care-pearl-one.vercel.app/campus-care-logo.png">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@graph": [
     {
       "@type": "WebSite",
-      "@id": "https://campus-care-tech-care2.vercel.app/#website",
-      "url": "https://campus-care-tech-care2.vercel.app/",
+      "@id": "https://campus-care-pearl-one.vercel.app/#website",
+      "url": "https://campus-care-pearl-one.vercel.app/",
       "name": "Campus Care 360",
       "description": "Campus complaint management and student support portal."
     },
@@ -37,7 +37,7 @@ LANDING_PAGE = r"""
       "name": "Campus Care 360",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web",
-      "url": "https://campus-care-tech-care2.vercel.app/",
+      "url": "https://campus-care-pearl-one.vercel.app/",
       "description": "A campus support portal for submitting campus and hostel complaints, tracking updates and managing Lost & Found listings."
     }
   ]
