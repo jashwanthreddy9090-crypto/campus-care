@@ -592,7 +592,7 @@ Disallow: /student
 Disallow: /worker
 Disallow: /api/
 
-Sitemap: https://campus-care-tech-care2.vercel.app/sitemap.xml
+Sitemap: https://campus-care-pearl-one.vercel.app/sitemap.xml
 """
     return Response(body, mimetype='text/plain; charset=utf-8',
                     headers={"Cache-Control": "public, max-age=3600"})
@@ -605,7 +605,7 @@ def sitemap_xml():
     body = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://campus-care-tech-care2.vercel.app/</loc>
+    <loc>https://campus-care-pearl-one.vercel.app/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
