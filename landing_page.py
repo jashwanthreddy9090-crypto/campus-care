@@ -7,6 +7,7 @@ LANDING_PAGE = r"""
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f7f3ec">
+<meta name="google-site-verification" content="itmsOjy3YjjIg2sFofCkt-V6mEnj39W9738j1URKt8U">
 <meta name="description" content="Campus Care 360 is a campus complaint management and hostel support platform. Submit campus concerns, track complaint updates and access Lost &amp; Found and student support in one place.">
 <meta name="keywords" content="Campus Care 360, campus complaint management, hostel complaint tracking, student support portal, campus helpdesk, Lost and Found">
 <meta name="robots" content="index, follow, max-image-preview:large">
