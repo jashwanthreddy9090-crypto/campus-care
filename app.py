@@ -578,6 +578,43 @@ def home():
     session.clear()
     return redirect(url_for('login'))
 
+
+# Public SEO endpoints. These are static responses and never connect to Neon.
+@app.route('/robots.txt')
+def robots_txt():
+    body = """User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /logout
+Disallow: /admin
+Disallow: /student
+Disallow: /worker
+Disallow: /api/
+
+Sitemap: https://campus-care-tech-care2.vercel.app/sitemap.xml
+"""
+    return Response(body, mimetype='text/plain; charset=utf-8',
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    # Only the public landing page belongs in the sitemap. Authenticated
+    # dashboards and account routes are intentionally excluded.
+    body = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://campus-care-tech-care2.vercel.app/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+    return Response(body, mimetype='application/xml; charset=utf-8',
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.route('/login',methods=['GET','POST'])
 def login():
     if request.method=='POST':
