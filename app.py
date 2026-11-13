@@ -29,6 +29,9 @@ from campus_config import CATEGORIES, PRIORITIES, STATUSES, ALLOWED_EXTENSIONS, 
 
 app = Flask(__name__)
 
+# Public visitor landing page (kept separate from the core application routes).
+from landing_page import LANDING_PAGE
+
 
 @app.before_request
 def disable_worker_portal():
@@ -49,7 +52,7 @@ _CAMPUS_CARE_LOGO_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
 @app.route("/campus-care-logo.png")
 def campus_care_logo():
-    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    return Response(_CAMPUS_CARE_LOGO_PNG, mimetype="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 application = app  # WSGI alias for deployment platforms
 app.secret_key = os.environ.get("SECRET_KEY", "")
@@ -558,9 +561,10 @@ REGISTER = r'''<div class="auth-card"><div class="auth-brand"><img class="upload
 # 8. ROUTES — HOME AND AUTHENTICATION
 @app.route('/')
 def home():
-    # Require an authenticated account before opening any dashboard.
+    # Visitors see the public landing page first. Existing authenticated users
+    # continue directly to their existing role-specific dashboard.
     if not session.get('user_id') and not session.get('worker_id'):
-        return redirect(url_for('login'))
+        return render_template_string(LANDING_PAGE)
 
     role = session.get('role')
     if role == 'worker':
