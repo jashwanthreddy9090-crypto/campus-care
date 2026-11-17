@@ -1643,40 +1643,63 @@ def complaint_search():
 
     query = request.args.get('q', '').strip()[:120]
     con = get_db()
-    sql = """SELECT c.*, u.name AS student_name, u.room,
-                    w.name AS worker_name
-             FROM complaints c
-             JOIN users u ON u.id = c.user_id
-             LEFT JOIN workers w ON w.id = c.assigned_worker_id
-             WHERE 1=1"""
-    params = []
-    if role == 'student':
-        sql += " AND c.user_id=?"
-        params.append(session['user_id'])
-    elif role == 'worker':
-        sql += " AND c.assigned_worker_id=?"
-        params.append(session['worker_id'])
+    try:
+        # Restrict the dataset first. Students and workers never search records
+        # outside their own account/assignment.
+        scope_sql = ""
+        scope_params = []
+        if role == 'student':
+            scope_sql = " AND c.user_id=?"
+            scope_params.append(session['user_id'])
+        elif role == 'worker':
+            scope_sql = " AND c.assigned_worker_id=?"
+            scope_params.append(session['worker_id'])
 
-    if query:
-        like = '%' + query.lower() + '%'
-        sql += """ AND (
-            LOWER(c.complaint_id) LIKE ? OR LOWER(c.title) LIKE ?
-            OR LOWER(c.description) LIKE ? OR LOWER(c.category) LIKE ?
-            OR LOWER(c.location) LIKE ? OR LOWER(c.status) LIKE ?
-            OR LOWER(u.name) LIKE ?
-        )"""
-        params.extend([like] * 7)
+        base = """SELECT c.*, u.name AS student_name, u.room,
+                         w.name AS worker_name
+                  FROM complaints c
+                  JOIN users u ON u.id=c.user_id
+                  LEFT JOIN workers w ON w.id=c.assigned_worker_id
+                  WHERE 1=1""" + scope_sql
 
-    sql += """ ORDER BY CASE c.priority WHEN 'Emergency' THEN 0
-                       WHEN 'High' THEN 1 ELSE 2 END,
-                       c.created_at DESC LIMIT 100"""
-    complaints = con.execute(sql, params).fetchall()
-    con.close()
+        complaints = []
+        if query:
+            # Complaint IDs are unique: try exact lookup first (fast indexed path).
+            exact_sql = base + " AND c.complaint_id=? LIMIT 1"
+            complaints = con.execute(exact_sql, scope_params + [query]).fetchall()
+
+            # If the user entered a partial ID, use a prefix match before
+            # falling back to keyword search across descriptive fields.
+            if not complaints and query.upper().startswith('CC-'):
+                complaints = con.execute(
+                    base + " AND c.complaint_id LIKE ? ORDER BY c.created_at DESC LIMIT 100",
+                    scope_params + [query.upper() + '%']
+                ).fetchall()
+
+            if not complaints:
+                like = '%' + query.lower() + '%'
+                keyword_sql = base + """ AND (
+                    LOWER(c.title) LIKE ? OR LOWER(c.description) LIKE ?
+                    OR LOWER(c.category) LIKE ? OR LOWER(c.location) LIKE ?
+                    OR LOWER(c.status) LIKE ? OR LOWER(u.name) LIKE ?
+                ) ORDER BY c.created_at DESC LIMIT 100"""
+                complaints = con.execute(
+                    keyword_sql, scope_params + [like] * 6
+                ).fetchall()
+        else:
+            complaints = con.execute(
+                base + """ ORDER BY CASE c.priority WHEN 'Emergency' THEN 0
+                           WHEN 'High' THEN 1 ELSE 2 END,
+                           c.created_at DESC LIMIT 100""",
+                scope_params
+            ).fetchall()
+    finally:
+        con.close()
 
     body = render_template_string(r'''<div class="page-head">
       <div><div class="eyebrow">CAMPUS CARE 360 · COMPLAINTS</div>
       <h1>Search complaints</h1>
-      <p>Find reports by complaint ID, title, description, category, location, status or student name.</p></div>
+      <p>Search by full complaint ID, partial ID, title, description, category, location, status or student name.</p></div>
       <a class="btn btn-light" href="{{url_for('admin_dashboard') if session.get('role')=='admin' else (url_for('worker_dashboard') if session.get('role')=='worker' else url_for('student_dashboard'))}}">← Dashboard</a>
     </div>
     <form class="card searchbar" method="GET" action="{{url_for('complaint_search')}}" style="grid-template-columns:minmax(0,1fr) auto;margin-bottom:22px">
