@@ -880,6 +880,12 @@ def admin_dashboard():
         LIMIT 100
     ''').fetchall()
     workers = con.execute('SELECT id, name, department, mobile FROM workers WHERE active=1 ORDER BY name').fetchall()
+    feedback_items = con.execute('''SELECT f.rating, f.comment, c.complaint_id, c.title, c.category,
+        c.created_at, u.name AS student_name, u.room, w.name AS worker_name
+        FROM feedback f JOIN complaints c ON c.id=f.complaint_id
+        JOIN users u ON u.id=c.user_id
+        LEFT JOIN workers w ON w.id=c.assigned_worker_id
+        ORDER BY f.id DESC LIMIT 100''').fetchall()
     con.close()
 
     body = render_template_string(r'''<div class="page-head">
@@ -898,6 +904,19 @@ def admin_dashboard():
       <p class="muted">Download one Excel workbook containing login accounts, worker accounts, and all complaints from the connected database.</p>
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
+    </div>
+    <div class="section-title"><h3>Student feedback received</h3><span>{{feedback_items|length}} recent responses</span></div>
+    <div class="admin-list" style="margin-bottom:28px">
+    {% for f in feedback_items %}
+      <article class="admin-card">
+        <div class="admin-top"><div><div class="admin-meta">{{f['complaint_id']}} · {{f['category']}} · {{f['created_at']}}</div>
+        <div class="admin-title">{{f['title']}}</div><div class="admin-meta">Student: {{f['student_name']}} · Room {{f['room'] or '—'}} · Worker: {{f['worker_name'] or 'Not assigned'}}</div></div>
+        <span class="chip resolved">Feedback received</span></div>
+        <div style="font-size:22px;color:#d49a24;margin-top:10px">{{'★'*f['rating']}}{{'☆'*(5-f['rating'])}} <span style="font-size:12px;color:#71809a">{{f['rating']}}/5</span></div>
+        <p class="admin-desc">{{f['comment'] or 'No written comment provided.'}}</p>
+        <small class="muted">This complaint is closed and cannot be edited.</small>
+      </article>
+    {% else %}<div class="empty">No student feedback has been received yet.</div>{% endfor %}
     </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
@@ -918,7 +937,7 @@ def admin_dashboard():
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
     </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
-       complaints=complaints, workers=workers, statuses=STATUSES)
+       complaints=complaints, workers=workers, statuses=STATUSES, feedback_items=feedback_items)
     return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
 
 
