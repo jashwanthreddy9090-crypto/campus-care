@@ -933,6 +933,9 @@ def update_complaint(id):
             return redirect(url_for('admin_dashboard'))
 
         previous_worker_id = row['assigned_worker_id']
+        # A newly assigned complaint should immediately enter the Assigned queue.
+        if worker and status == 'Submitted':
+            status = 'Assigned'
         con.execute(
             '''UPDATE complaints
                SET status=?, assigned_worker_id=?, assigned_to=?,
