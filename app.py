@@ -880,10 +880,10 @@ def admin_dashboard():
         <span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}.get(c['status'],'submitted') }}">{{c['status']}}</span></div></div>
         <p class="admin-desc">{{c['description']}}</p>
         <form class="admin-form" method="POST" action="{{url_for('update_complaint', id=c['id'])}}">
+          <div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} · {{w['department']}}</option>{% endfor %}</select></div>
           <div><label>Status</label><select name="status">{% for st in statuses %}<option value="{{st}}" {{'selected' if c['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
-          
           <div><label>Admin remark</label><input name="remark" value="{{c['admin_remark'] or ''}}" placeholder="Next action or resolution note"></div>
-          <button class="btn btn-primary" type="submit">Save update</button>
+          <button class="btn btn-primary" type="submit">Save assignment & update</button>
         </form>
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
@@ -894,12 +894,75 @@ def admin_dashboard():
 
 @app.route('/admin/complaint/<int:id>',methods=['POST'])
 def update_complaint(id):
-    if not require('admin'): return redirect(url_for('login'))
-    status=request.form.get('status','Submitted'); status=status if status in STATUSES else 'Submitted'; wid=request.form.get('worker_id','').strip(); remark=request.form.get('remark','').strip(); con=get_db(); worker=con.execute('SELECT * FROM workers WHERE id=?',(wid,)).fetchone() if wid.isdigit() else None
-    row=con.execute('SELECT user_id,complaint_id,title FROM complaints WHERE id=?',(id,)).fetchone(); con.execute('UPDATE complaints SET status=?,assigned_worker_id=?,assigned_to=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(status,worker['id'] if worker else None,worker['name'] if worker else '',remark,id)); con.commit(); con.close();
-    if row: create_notification('user', row['user_id'], 'Complaint update', f"{row['complaint_id']} · {row['title']} is now {status}.", url_for('complaint_status', complaint_id=row['complaint_id']))
-    if worker: create_notification('worker', worker['id'], 'New assigned task', f"{row['complaint_id'] if row else 'Complaint'}: {row['title'] if row else ''}", url_for('worker_dashboard'))
-    flash('Complaint updated successfully.','success'); return redirect(url_for('admin_dashboard'))
+    if not require('admin'):
+        return redirect(url_for('login'))
+
+    status = request.form.get('status', 'Submitted')
+    status = status if status in STATUSES else 'Submitted'
+    remark = request.form.get('remark', '').strip()
+    con = get_db()
+    try:
+        row = con.execute(
+            'SELECT user_id, complaint_id, title, assigned_worker_id FROM complaints WHERE id=?',
+            (id,)
+        ).fetchone()
+        if not row:
+            flash('Complaint not found.', 'error')
+            return redirect(url_for('admin_dashboard'))
+
+        # Preserve the current assignment if an older form submits no worker_id.
+        # An explicit empty value means the administrator chose Unassigned.
+        submitted_worker_id = request.form.get('worker_id')
+        if submitted_worker_id is None:
+            worker = con.execute(
+                'SELECT id, name FROM workers WHERE id=? AND active=1',
+                (row['assigned_worker_id'],)
+            ).fetchone() if row['assigned_worker_id'] else None
+        elif submitted_worker_id.strip() == '':
+            worker = None
+        elif submitted_worker_id.strip().isdigit():
+            worker = con.execute(
+                'SELECT id, name FROM workers WHERE id=? AND active=1',
+                (submitted_worker_id.strip(),)
+            ).fetchone()
+            if not worker:
+                flash('Select an active worker from the list.', 'error')
+                return redirect(url_for('admin_dashboard'))
+        else:
+            flash('Invalid worker selection.', 'error')
+            return redirect(url_for('admin_dashboard'))
+
+        previous_worker_id = row['assigned_worker_id']
+        con.execute(
+            '''UPDATE complaints
+               SET status=?, assigned_worker_id=?, assigned_to=?,
+                   admin_remark=?, updated_at=CURRENT_TIMESTAMP
+               WHERE id=?''',
+            (status, worker['id'] if worker else None,
+             worker['name'] if worker else '', remark, id)
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        logging.exception('Failed to update complaint assignment')
+        flash('Could not save the complaint update. Please try again.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    finally:
+        con.close()
+
+    create_notification(
+        'user', row['user_id'], 'Complaint update',
+        f"{row['complaint_id']} · {row['title']} is now {status}.",
+        url_for('complaint_status', complaint_id=row['complaint_id'])
+    )
+    if worker and worker['id'] != previous_worker_id:
+        create_notification(
+            'worker', worker['id'], 'New assigned task',
+            f"{row['complaint_id']}: {row['title']}",
+            url_for('worker_dashboard')
+        )
+    flash('Complaint updated and worker assignment saved.', 'success')
+    return redirect(url_for('admin_dashboard'))
 
 
 @app.route('/admin/export-data.xlsx')
