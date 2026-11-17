@@ -348,6 +348,7 @@ def initialize_database():
     rows = con.execute("SELECT id FROM users WHERE role='student' AND (student_id IS NULL OR student_id='')").fetchall()
     for r in rows:
         con.execute("UPDATE users SET student_id=? WHERE id=?", (f"CC{2026000+r['id']}", r['id']))
+    con.execute('CREATE INDEX IF NOT EXISTS idx_feedback_complaint_id ON feedback(complaint_id)')
     con.commit(); con.close()
 
 # 6. SHARED REQUEST, AUTHORIZATION, AND PAGE HELPERS
@@ -738,9 +739,14 @@ def worker_dashboard():
     if not require('worker') or not session.get('worker_id'):
         return redirect(url_for('worker_login'))
     con = get_db()
-    jobs = con.execute("SELECT c.*,u.name student_name,u.room FROM complaints c JOIN users u ON u.id=c.user_id WHERE c.assigned_worker_id=? ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END, c.created_at DESC", (session['worker_id'],)).fetchall()
+    jobs = con.execute("""SELECT c.*,u.name student_name,u.room,f.rating feedback_rating,f.comment feedback_comment
+        FROM complaints c JOIN users u ON u.id=c.user_id
+        LEFT JOIN feedback f ON f.id=(SELECT MAX(f2.id) FROM feedback f2 WHERE f2.complaint_id=c.id)
+        WHERE c.assigned_worker_id=?
+        ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END, c.created_at DESC
+        LIMIT 50""", (session['worker_id'],)).fetchall()
     con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p><form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form></div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}<form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form>{% endif %}</div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
     return render_page(body, 'Worker Portal', 'WORKER OPERATIONS')
 
 @app.route('/worker/job/<int:id>', methods=['POST'])
@@ -752,8 +758,8 @@ def worker_update_job(id):
         status = 'In Progress'
     remark = request.form.get('remark','').strip()
     con = get_db()
-    job = con.execute('SELECT user_id,complaint_id,title FROM complaints WHERE id=? AND assigned_worker_id=?',(id,session['worker_id'])).fetchone()
-    cur = con.execute("UPDATE complaints SET status=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND assigned_worker_id=?", (status, remark, id, session['worker_id']))
+    job = con.execute('SELECT user_id,complaint_id,title FROM complaints WHERE id=? AND assigned_worker_id=? AND NOT EXISTS (SELECT 1 FROM feedback WHERE feedback.complaint_id=complaints.id)',(id,session['worker_id'])).fetchone()
+    cur = con.execute("UPDATE complaints SET status=?,admin_remark=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND assigned_worker_id=? AND NOT EXISTS (SELECT 1 FROM feedback WHERE feedback.complaint_id=complaints.id)", (status, remark, id, session['worker_id']))
     con.commit(); con.close()
     if job and cur.rowcount: create_notification('user', job['user_id'], 'Worker updated your complaint', f"{job['complaint_id']} · {job['title']} is now {status}.", url_for('complaint_status', complaint_id=job['complaint_id']))
     flash('Task updated.' if cur.rowcount else 'That task is not assigned to your account.', 'success' if cur.rowcount else 'error')
@@ -821,11 +827,33 @@ def complaint_status(complaint_id):
 @app.route('/complaint/<complaint_id>/feedback',methods=['POST'])
 def submit_feedback(complaint_id):
     if not require('student'): return redirect(url_for('login'))
-    try: rating=max(1,min(5,int(request.form.get('rating','5'))))
-    except: rating=5
-    con=get_db(); c=con.execute('SELECT * FROM complaints WHERE complaint_id=? AND user_id=?',(complaint_id,session['user_id'])).fetchone()
-    if c: con.execute('INSERT INTO feedback(complaint_id,rating,comment) VALUES(?,?,?)',(c['id'],rating,request.form.get('comment','').strip())); con.execute("UPDATE complaints SET status='Closed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(c['id'],)); con.commit()
-    con.close(); flash('Thank you for your feedback. The complaint is now closed.','success'); return redirect(url_for('complaint_status',complaint_id=complaint_id))
+    try:
+        rating = max(1, min(5, int(request.form.get('rating', '5'))))
+    except (TypeError, ValueError):
+        rating = 5
+    comment = request.form.get('comment', '').strip()[:2000]
+    con = get_db()
+    try:
+        # Insert only once and only for a complaint that is resolved and belongs to this student.
+        cur = con.execute('''INSERT INTO feedback(complaint_id,rating,comment)
+            SELECT c.id,?,?,? FROM complaints c
+            WHERE c.complaint_id=? AND c.user_id=? AND c.status='Resolved'
+              AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.complaint_id=c.id)''',
+            (rating, comment, complaint_id, session['user_id']))
+        if cur.rowcount:
+            con.execute("UPDATE complaints SET status='Closed',updated_at=CURRENT_TIMESTAMP WHERE complaint_id=? AND user_id=?", (complaint_id, session['user_id']))
+            con.commit()
+            flash('Thank you for your feedback. The complaint is now closed.', 'success')
+        else:
+            con.rollback()
+            flash('Feedback was already received or this complaint is not ready for feedback.', 'error')
+    except Exception:
+        con.rollback()
+        logging.exception('Feedback submission failed')
+        flash('Could not submit feedback. Please try again.', 'error')
+    finally:
+        con.close()
+    return redirect(url_for('complaint_status', complaint_id=complaint_id))
 
 
 
@@ -842,10 +870,11 @@ def admin_dashboard():
     resolved = con.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved','Closed')").fetchone()['n']
     complaints = con.execute('''
         SELECT c.*, u.name AS student_name, u.room,
-               w.name AS worker_name
+               w.name AS worker_name, f.rating AS feedback_rating, f.comment AS feedback_comment
         FROM complaints c
         JOIN users u ON u.id = c.user_id
         LEFT JOIN workers w ON w.id = c.assigned_worker_id
+        LEFT JOIN feedback f ON f.id=(SELECT MAX(f2.id) FROM feedback f2 WHERE f2.complaint_id=c.id)
         ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END,
                  c.created_at DESC
         LIMIT 100
@@ -879,12 +908,13 @@ def admin_dashboard():
         <div class="admin-tags"><span class="chip {{'emergency' if c['priority']=='Emergency' else ('progress' if c['priority']=='High' else 'submitted')}}">{{c['priority']}}</span>
         <span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}.get(c['status'],'submitted') }}">{{c['status']}}</span></div></div>
         <p class="admin-desc">{{c['description']}}</p>
+        {% if c['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*c['feedback_rating']}}{{'☆'*(5-c['feedback_rating'])}}</div><p>{{c['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}
         <form class="admin-form" method="POST" action="{{url_for('update_complaint', id=c['id'])}}">
           <div><label>Assign worker</label><select name="worker_id"><option value="">Unassigned</option>{% for w in workers %}<option value="{{w['id']}}" {{'selected' if c['assigned_worker_id']==w['id'] else ''}}>{{w['name']}} · {{w['department']}}</option>{% endfor %}</select></div>
           <div><label>Status</label><select name="status">{% for st in statuses %}<option value="{{st}}" {{'selected' if c['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div>
           <div><label>Admin remark</label><input name="remark" value="{{c['admin_remark'] or ''}}" placeholder="Next action or resolution note"></div>
           <button class="btn btn-primary" type="submit">Save assignment & update</button>
-        </form>
+        </form>{% endif %}
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
     </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
@@ -903,11 +933,14 @@ def update_complaint(id):
     con = get_db()
     try:
         row = con.execute(
-            'SELECT user_id, complaint_id, title, assigned_worker_id FROM complaints WHERE id=?',
+            'SELECT user_id, complaint_id, title, assigned_worker_id, EXISTS(SELECT 1 FROM feedback WHERE feedback.complaint_id=complaints.id) AS feedback_received FROM complaints WHERE id=?',
             (id,)
         ).fetchone()
         if not row:
             flash('Complaint not found.', 'error')
+            return redirect(url_for('admin_dashboard'))
+        if row['feedback_received']:
+            flash('Feedback has been received. This complaint is locked and cannot be edited.', 'error')
             return redirect(url_for('admin_dashboard'))
 
         # Preserve the current assignment if an older form submits no worker_id.
