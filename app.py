@@ -739,7 +739,7 @@ def worker_login():
             session.update(worker_id=worker['id'], name=worker['name'], role='worker')
             return redirect(url_for('worker_dashboard'))
         flash('Invalid worker email or password. Ask the administrator for your login.', 'error')
-    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="uploaded-campus-logo" src="{{ url_for('campus_care_logo', v='logo-20261011-final') }}" alt="Campus Care 360 original logo"><div><h1>Campus Care 360</h1><span>Worker operations portal</span></div></div><h2>Worker sign in.</h2><p>View assigned jobs and update their progress.</p><form method="POST"><div><label>Work email</label><input type="email" name="email" required placeholder="worker@campus.360"></div><div><label>Password</label><input type="password" name="password" required placeholder="Password issued by admin"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Enter worker portal →</button></form><div class="auth-link"><a href="{{url_for('login')}}">← Student / Admin login</a></div><div class="demo">Worker accounts can only be created by an authorized administrator.</div></div>''')
+    body = render_template_string(r'''<div class="auth-card"><div class="auth-brand"><img class="uploaded-campus-logo" src="{{ url_for('campus_care_logo', v='logo-20261011-final') }}" alt="Campus Care 360 original logo"><div><h1>Campus Care 360</h1><span>Worker operations portal</span></div></div><h2>Worker sign in.</h2><p>View assigned jobs and update their progress.</p><form method="POST"><div><label>Work email</label><input type="email" name="email" required placeholder="worker@campus.360"></div><div><label>Password</label><input type="password" name="password" required placeholder="Password issued by admin"></div><button class="btn btn-primary" style="justify-content:center" type="submit">Enter worker portal →</button></form><div class="auth-link"><a href="{{url_for('login')}}">← Student login</a> · <a href="{{url_for('login')}}">Admin login</a></div><div class="demo">Worker accounts can only be created by an authorized administrator.</div></div>''')
     return render_page(body, 'Worker Login', 'WORKER PORTAL')
 
 @app.route('/worker')
@@ -773,8 +773,16 @@ def worker_update_job(id):
     flash('Task updated.' if cur.rowcount else 'That task is not assigned to your account.', 'success' if cur.rowcount else 'error')
     return redirect(url_for('worker_dashboard'))
 
-@app.route('/logout')
-def logout(): session.clear(); return redirect(url_for('login'))
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    # Clear every role-specific session key so a worker cannot carry worker
+    # identity into the student/admin sign-in flow.
+    session.clear()
+    response = redirect(url_for('login'), code=303)
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 # 9. ROUTES — STUDENT DASHBOARD AND COMPLAINTS
 @app.route('/student')
