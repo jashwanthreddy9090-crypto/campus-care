@@ -302,6 +302,10 @@ def initialize_database():
     CREATE INDEX IF NOT EXISTS idx_complaints_user_created ON complaints(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_complaints_status_created ON complaints(status, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_complaints_worker_status ON complaints(assigned_worker_id, status);
+    CREATE INDEX IF NOT EXISTS idx_complaints_worker_created ON complaints(assigned_worker_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_notifications_account_created ON notifications(account_type, account_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_lost_found_user_created ON lost_found(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_lost_found_status_created ON lost_found(status, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_workers_lower_email ON workers(lower(email));
     """)
     # Upgrade older databases safely.
@@ -361,7 +365,11 @@ def current_user():
 
 @app.context_processor
 def globals_ctx():
-    return {"categories":CATEGORIES,"priorities":PRIORITIES,"statuses":STATUSES,"current_user":current_user()}
+    # Keep template context database-free. The previous context processor called
+    # current_user() on every request, opening an additional Neon connection
+    # even for pages whose route had already queried the database (and for
+    # public/static pages). Identity already lives in the signed Flask session.
+    return {"categories": CATEGORIES, "priorities": PRIORITIES, "statuses": STATUSES}
 
 # ---------------- UI ----------------
 SHELL = r'''
