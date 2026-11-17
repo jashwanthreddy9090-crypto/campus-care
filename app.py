@@ -746,7 +746,7 @@ def worker_dashboard():
         ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END, c.created_at DESC
         LIMIT 50""", (session['worker_id'],)).fetchall()
     con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}<form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form>{% endif %}</div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span><a class="btn btn-light" href="{{url_for('complaint_search')}}">⌕ Search complaints</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}<form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form>{% endif %}</div>{% else %}<div class="empty">No jobs assigned yet. Ask the administrator to assign a complaint to your worker account.</div>{% endfor %}</div>''', jobs=jobs)
     return render_page(body, 'Worker Portal', 'WORKER OPERATIONS')
 
 @app.route('/worker/job/<int:id>', methods=['POST'])
@@ -773,7 +773,7 @@ def logout(): session.clear(); return redirect(url_for('login'))
 def student_dashboard():
     if not require('student'): return redirect(url_for('login'))
     con=get_db(); cs=con.execute('SELECT * FROM complaints WHERE user_id=? ORDER BY created_at DESC',(session['user_id'],)).fetchall(); notices=con.execute('SELECT * FROM notices WHERE active=1 ORDER BY created_at DESC LIMIT 4').fetchall(); unread=con.execute("SELECT COUNT(*) n FROM notifications WHERE account_type='user' AND account_id=? AND is_read=0",(session['user_id'],)).fetchone()['n']; con.close(); counts={s:sum(1 for c in cs if c['status']==s) for s in STATUSES}
-    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your campus today</h3><span>{{unread}} unread notifications</span></div><div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('notices_page')}}"><span class="help-quick-icon">▤</span><span><b>Campus notices</b><small>Latest announcements</small></span></a><a class="help-quicklink" href="{{url_for('notifications_page')}}"><span class="help-quick-icon">♢</span><span><b>Notifications · {{unread}}</b><small>Complaint and campus updates</small></span></a><a class="help-quicklink" href="{{url_for('lost_found_page')}}"><span class="help-quick-icon">⌕</span><span><b>Lost & Found</b><small>Find or report an item</small></span></a><a class="help-quicklink" href="{{url_for('help_support')}}"><span class="help-quick-icon">?</span><span><b>Help &amp; Support</b><small>Get help with app issues and campus support</small></span></a></div><div class="section-title"><h3>Recent campus notices</h3><span><a href="{{url_for('notices_page')}}">View all →</a></span></div><div class="complaints">{% for n in notices %}<div class="complaint-row"><div><div class="row-meta">{{n['category']}} · {{n['created_at']}}</div><div class="row-title">{{n['title']}}</div><div class="row-sub">{{n['body']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else 'submitted'}}">{{n['priority']}}</span></div>{% else %}<div class="empty">No campus notices have been published yet.</div>{% endfor %}</div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div>''',cs=cs,counts=counts,notices=notices,unread=unread)
+    body=render_template_string(r'''<div class="page-head"><div><div class="eyebrow">STUDENT SPACE</div><h1>Good day, {{session.get('name','Student').split()[0]}} 👋</h1><p>Everything you report, in one calm place.</p></div><a class="btn btn-primary" href="{{url_for('new_complaint')}}">＋ Report an issue</a><a class="btn btn-light" href="{{url_for('complaint_search')}}">⌕ Search complaints</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE</div><h2>Make your campus better,<br>one report at a time.</h2><p>Report hostel and campus issues, attach evidence and follow every update without chasing anyone.</p><a class="hero-link" href="{{url_for('new_complaint')}}">Start a complaint →</a></div><div class="orbit"></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong> SOS · Call Emergency Services</strong><small>Tap to call India’s emergency number 112 if you are in immediate danger.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>Fire, ambulance, security and campus support contacts.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your campus today</h3><span>{{unread}} unread notifications</span></div><div class="help-quicklinks"><a class="help-quicklink" href="{{url_for('notices_page')}}"><span class="help-quick-icon">▤</span><span><b>Campus notices</b><small>Latest announcements</small></span></a><a class="help-quicklink" href="{{url_for('notifications_page')}}"><span class="help-quick-icon">♢</span><span><b>Notifications · {{unread}}</b><small>Complaint and campus updates</small></span></a><a class="help-quicklink" href="{{url_for('lost_found_page')}}"><span class="help-quick-icon">⌕</span><span><b>Lost & Found</b><small>Find or report an item</small></span></a><a class="help-quicklink" href="{{url_for('help_support')}}"><span class="help-quick-icon">?</span><span><b>Help &amp; Support</b><small>Get help with app issues and campus support</small></span></a></div><div class="section-title"><h3>Recent campus notices</h3><span><a href="{{url_for('notices_page')}}">View all →</a></span></div><div class="complaints">{% for n in notices %}<div class="complaint-row"><div><div class="row-meta">{{n['category']}} · {{n['created_at']}}</div><div class="row-title">{{n['title']}}</div><div class="row-sub">{{n['body']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else 'submitted'}}">{{n['priority']}}</span></div>{% else %}<div class="empty">No campus notices have been published yet.</div>{% endfor %}</div><div class="section-title"><h3>Your overview</h3><span>{{cs|length}} total reports</span></div><div class="stats"><div class="stat"><div class="stat-top"><span>Submitted</span><div class="stat-icon">↗</div></div><strong>{{counts['Submitted']}}</strong></div><div class="stat"><div class="stat-top"><span>Being handled</span><div class="stat-icon">◌</div></div><strong>{{counts['Assigned']+counts['In Progress']}}</strong></div><div class="stat"><div class="stat-top"><span>Resolved</span><div class="stat-icon">✓</div></div><strong>{{counts['Resolved']}}</strong></div><div class="stat"><div class="stat-top"><span>Closed</span><div class="stat-icon">▣</div></div><strong>{{counts['Closed']}}</strong></div></div><div class="section-title"><h3>Recent complaints</h3><span>Open a report for details</span></div><div class="complaints">{% for c in cs %}<a class="complaint-row" href="{{url_for('complaint_status',complaint_id=c['complaint_id'])}}"><div><div class="row-meta">{{c['category']|upper}} · {{c['location']}} · {{c['complaint_id']}}</div><div class="row-title">{{c['title']}}</div><div class="row-sub">{{c['created_at']}}</div></div><div class="row-right"><span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}[c['status']] }}">{{c['status']}}</span><span class="arrow">›</span></div></a>{% else %}<div class="empty">No complaints yet. Your first report can start here.</div>{% endfor %}</div>''',cs=cs,counts=counts,notices=notices,unread=unread)
     return render_page(body,'Student Dashboard','STUDENT SPACE')
 
 @app.route('/complaint/new',methods=['GET','POST'])
@@ -891,7 +891,7 @@ def admin_dashboard():
     body = render_template_string(r'''<div class="page-head">
       <div><div class="eyebrow">ADMINISTRATION</div><h1>Admin Dashboard</h1>
       <p>Review campus complaints, update status and track resolutions.</p></div>
-      <span class="chip emergency">ADMIN PORTAL</span>
+      <span class="chip emergency">ADMIN PORTAL</span><a class="btn btn-light" href="{{url_for('complaint_search')}}">⌕ Search complaints</a>
     </div>
     <div class="stats">
       <div class="stat"><div class="stat-top"><span>Total complaints</span><div class="stat-icon">▦</div></div><strong>{{total}}</strong></div>
@@ -1622,6 +1622,81 @@ def lost_found_close(item_id):
     con.commit(); con.close()
     flash('Listing marked as resolved.', 'success')
     return redirect(url_for('lost_found_page', mine='1') if require('student') else url_for('lost_found_page'))
+
+
+
+
+# 15. SHARED ROLE-BASED COMPLAINT SEARCH
+@app.route('/complaints/search', methods=['GET'])
+def complaint_search():
+    role = session.get('role')
+    if role not in ('student', 'admin', 'worker'):
+        return redirect(url_for('login'))
+
+    query = request.args.get('q', '').strip()[:120]
+    con = get_db()
+    sql = """SELECT c.*, u.name AS student_name, u.room,
+                    w.name AS worker_name
+             FROM complaints c
+             JOIN users u ON u.id = c.user_id
+             LEFT JOIN workers w ON w.id = c.assigned_worker_id
+             WHERE 1=1"""
+    params = []
+    if role == 'student':
+        sql += " AND c.user_id=?"
+        params.append(session['user_id'])
+    elif role == 'worker':
+        sql += " AND c.assigned_worker_id=?"
+        params.append(session['worker_id'])
+
+    if query:
+        like = '%' + query.lower() + '%'
+        sql += """ AND (
+            LOWER(c.complaint_id) LIKE ? OR LOWER(c.title) LIKE ?
+            OR LOWER(c.description) LIKE ? OR LOWER(c.category) LIKE ?
+            OR LOWER(c.location) LIKE ? OR LOWER(c.status) LIKE ?
+            OR LOWER(u.name) LIKE ?
+        )"""
+        params.extend([like] * 7)
+
+    sql += """ ORDER BY CASE c.priority WHEN 'Emergency' THEN 0
+                       WHEN 'High' THEN 1 ELSE 2 END,
+                       c.created_at DESC LIMIT 100"""
+    complaints = con.execute(sql, params).fetchall()
+    con.close()
+
+    body = render_template_string(r'''<div class="page-head">
+      <div><div class="eyebrow">CAMPUS CARE 360 · COMPLAINTS</div>
+      <h1>Search complaints</h1>
+      <p>Find reports by complaint ID, title, description, category, location, status or student name.</p></div>
+      <a class="btn btn-light" href="{{url_for('admin_dashboard') if session.get('role')=='admin' else (url_for('worker_dashboard') if session.get('role')=='worker' else url_for('student_dashboard'))}}">← Dashboard</a>
+    </div>
+    <form class="card searchbar" method="GET" action="{{url_for('complaint_search')}}" style="grid-template-columns:minmax(0,1fr) auto;margin-bottom:22px">
+      <input name="q" value="{{query}}" placeholder="Enter complaint ID, issue, category, location or status…" aria-label="Search complaints">
+      <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+    <div class="section-title"><h3>{{'All complaints' if session.get('role')=='admin' else ('Your assigned complaints' if session.get('role')=='worker' else 'Your complaints')}}</h3><span>{{complaints|length}} result(s) · maximum 100</span></div>
+    <div class="admin-list">
+    {% for c in complaints %}
+      <article class="admin-card">
+        <div class="admin-top">
+          <div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div>
+          <div class="admin-title">{{c['title']}}</div>
+          <div class="admin-meta">Reported by {{c['student_name']}} · Room {{c['room'] or '—'}} · {{c['created_at']}}</div>
+          {% if c['worker_name'] %}<div class="admin-meta">Assigned worker: {{c['worker_name']}}</div>{% endif %}</div>
+          <div class="admin-tags"><span class="chip {{'emergency' if c['priority']=='Emergency' else ('progress' if c['priority']=='High' else 'submitted')}}">{{c['priority']}}</span>
+          <span class="chip {{ {'Submitted':'submitted','Assigned':'assigned','In Progress':'progress','Resolved':'resolved','Closed':'closed'}.get(c['status'],'submitted') }}">{{c['status']}}</span></div>
+        </div>
+        <p class="admin-desc">{{c['description']}}</p>
+        {% if session.get('role')=='student' %}
+          <a class="btn btn-light" href="{{url_for('complaint_status', complaint_id=c['complaint_id'])}}">View complaint tracking →</a>
+        {% endif %}
+      </article>
+    {% else %}
+      <div class="empty">{{'No complaints match your search. Try another keyword or complaint ID.' if query else 'No complaints are available in this portal yet.'}}</div>
+    {% endfor %}
+    </div>''', complaints=complaints, query=query)
+    return render_page(body, 'Search Complaints', 'COMPLAINT SEARCH')
 
 
 # 16. APPLICATION INITIALIZATION AND LOCAL DEVELOPMENT ENTRY POINT
