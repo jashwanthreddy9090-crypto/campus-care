@@ -111,6 +111,18 @@ class PostgresConnection:
                 "with postgresql:// or postgres://."
             )
 
+        # Neon serverless applications should use PgBouncer's pooled hostname.
+        # Keep the supplied DATABASE_URL unchanged in Vercel; only switch the
+        # hostname for this runtime connection when a direct Neon host is used.
+        parsed_dsn = urlparse(dsn)
+        db_host = parsed_dsn.hostname or ""
+        if db_host.endswith(".neon.tech") and "-pooler." not in db_host:
+            pooled_host = db_host.replace(".c-", "-pooler.c-", 1)
+            if pooled_host != db_host:
+                dsn = parsed_dsn._replace(
+                    netloc=parsed_dsn.netloc.replace(db_host, pooled_host, 1)
+                ).geturl()
+
         self._pool = _get_postgres_pool(dsn, DictCursor)
         self._conn = self._pool.getconn()
         if self._conn.closed:
