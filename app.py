@@ -302,6 +302,7 @@ def initialize_database():
     CREATE INDEX IF NOT EXISTS idx_complaints_user_created ON complaints(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_complaints_status_created ON complaints(status, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_complaints_worker_status ON complaints(assigned_worker_id, status);
+    CREATE INDEX IF NOT EXISTS idx_workers_lower_email ON workers(lower(email));
     """)
     # Upgrade older databases safely.
     existing = {r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()}
