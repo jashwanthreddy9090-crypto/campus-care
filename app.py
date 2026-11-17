@@ -836,7 +836,7 @@ def submit_feedback(complaint_id):
     try:
         # Insert only once and only for a complaint that is resolved and belongs to this student.
         cur = con.execute('''INSERT INTO feedback(complaint_id,rating,comment)
-            SELECT c.id,?,?,? FROM complaints c
+            SELECT c.id,?,? FROM complaints c
             WHERE c.complaint_id=? AND c.user_id=? AND c.status='Resolved'
               AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.complaint_id=c.id)''',
             (rating, comment, complaint_id, session['user_id']))
