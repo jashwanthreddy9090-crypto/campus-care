@@ -342,6 +342,8 @@ def initialize_database():
         con.execute("ALTER TABLE lost_found ADD COLUMN image_data TEXT DEFAULT ''")
     if "image_mime" not in existing_lf:
         con.execute("ALTER TABLE lost_found ADD COLUMN image_mime TEXT DEFAULT ''")
+    if "claim_worker_id" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN claim_worker_id INTEGER DEFAULT NULL")
     if "claim_user_id" not in existing_lf:
         con.execute("ALTER TABLE lost_found ADD COLUMN claim_user_id INTEGER DEFAULT NULL")
     if "claim_status" not in existing_lf:
@@ -1656,46 +1658,57 @@ def lost_found_page():
         action = request.form.get('action', 'create')
         con = get_db()
         if action == 'claim':
-            if not is_student:
-                con.close(); flash('Only students can request to claim an item.', 'error')
-                return redirect(url_for('lost_found_page'))
             item_id = request.form.get('item_id', '')
             item = con.execute("SELECT * FROM lost_found WHERE id=? AND status='Open' AND (claim_status IS NULL OR claim_status='')", (item_id,)).fetchone() if item_id.isdigit() else None
-            if item and item['user_id'] != session.get('user_id'):
-                owner_id, item_title = item['user_id'], item['title']
-                con.execute("UPDATE lost_found SET claim_user_id=?, claim_status='Requested' WHERE id=? AND status='Open'", (session['user_id'], item_id))
+            own_item = item and ((is_student and not item['posted_by_worker_id'] and item['user_id'] == session.get('user_id')) or (is_worker and item['posted_by_worker_id'] == session.get('worker_id')))
+            if item and not own_item:
+                if is_worker:
+                    cur = con.execute("UPDATE lost_found SET claim_worker_id=?,claim_user_id=NULL,claim_status='Requested' WHERE id=? AND status='Open' AND (claim_status IS NULL OR claim_status='')", (session['worker_id'], item_id))
+                    claimant_type, claimant_id = 'worker', session['worker_id']
+                else:
+                    cur = con.execute("UPDATE lost_found SET claim_user_id=?,claim_worker_id=NULL,claim_status='Requested' WHERE id=? AND status='Open' AND (claim_status IS NULL OR claim_status='')", (session['user_id'], item_id))
+                    claimant_type, claimant_id = 'user', session['user_id']
                 con.commit()
+                owner_type = 'worker' if item['posted_by_worker_id'] else 'user'
+                owner_id = item['posted_by_worker_id'] if item['posted_by_worker_id'] else item['user_id']
                 con.close()
-                create_notification('user', owner_id, 'Lost & Found claim request',
-                                    f"{session.get('name','A student')} says this item belongs to them and has requested to claim: {item_title}. Update the current collection location in My listings.",
-                                    url_for('lost_found_page', mine='1'))
-                flash('Claim request sent. The person who uploaded the item will update its collection location.', 'success')
+                if cur.rowcount:
+                    create_notification(owner_type, owner_id, 'Lost & Found claim request',
+                        f"{session.get('name','A campus member')} says this item belongs to them and has requested to claim: {item['title']}. Update the current collection location in My listings.",
+                        url_for('lost_found_page', mine='1'))
+                    flash('Claim request sent. The uploader will share the collection location.', 'success')
+                else:
+                    flash('This item already has a claim request.', 'error')
             else:
                 con.close()
-                flash('This item already has a claim request, is no longer available, or belongs to your account.', 'error')
+                flash('This item is unavailable or belongs to your account.', 'error')
             return redirect(url_for('lost_found_page'))
 
         if action == 'update_claim_location':
-            if not is_student:
-                con.close(); flash('Only the student who posted the item can update its collection location.', 'error')
-                return redirect(url_for('lost_found_page', mine='1'))
             item_id = request.form.get('item_id', '')
             current_location = request.form.get('current_location', '').strip()[:200]
-            item = con.execute("SELECT id,title,claim_user_id FROM lost_found WHERE id=? AND user_id=? AND status='Open' AND claim_status='Requested'", (item_id, session['user_id'])).fetchone() if item_id.isdigit() else None
-            if not item or not current_location or not item['claim_user_id']:
+            if is_worker:
+                item = con.execute("SELECT id,title,claim_user_id,claim_worker_id FROM lost_found WHERE id=? AND posted_by_worker_id=? AND status='Open' AND claim_status='Requested'", (item_id, session['worker_id'])).fetchone() if item_id.isdigit() else None
+                owner_type, owner_id = 'worker', session['worker_id']
+            else:
+                item = con.execute("SELECT id,title,claim_user_id,claim_worker_id FROM lost_found WHERE id=? AND user_id=? AND posted_by_worker_id IS NULL AND status='Open' AND claim_status='Requested'", (item_id, session['user_id'])).fetchone() if item_id.isdigit() else None
+                owner_type, owner_id = 'user', session['user_id']
+            if not item or not current_location or not (item['claim_user_id'] or item['claim_worker_id']):
                 con.close()
                 flash('Enter a valid current collection location for the pending claim.', 'error')
                 return redirect(url_for('lost_found_page', mine='1'))
-            con.execute("UPDATE lost_found SET current_location=?, claim_status='Location updated' WHERE id=? AND user_id=?", (current_location, item_id, session['user_id']))
+            con.execute("UPDATE lost_found SET current_location=?, claim_status='Location updated' WHERE id=?", (current_location, item_id))
             con.commit()
-            claimant_id, item_title = item['claim_user_id'], item['title']
+            claimant_type = 'worker' if item['claim_worker_id'] else 'user'
+            claimant_id = item['claim_worker_id'] or item['claim_user_id']
+            item_title = item['title']
             con.close()
-            create_notification('user', claimant_id, 'Item collection location updated',
-                                f"The uploader has updated the current collection location for '{item_title}': {current_location}. Please contact the uploader before collecting it.",
-                                url_for('lost_found_page'))
-            create_notification('user', session['user_id'], 'Collection location shared',
-                                f"You shared the current collection location for '{item_title}': {current_location}.",
-                                url_for('lost_found_page', mine='1'))
+            create_notification(claimant_type, claimant_id, 'Item collection location updated',
+                f"The uploader has updated the current collection location for '{item_title}': {current_location}. Please contact the uploader before collecting it.",
+                url_for('lost_found_page'))
+            create_notification(owner_type, owner_id, 'Collection location shared',
+                f"You shared the current collection location for '{item_title}': {current_location}.",
+                url_for('lost_found_page', mine='1'))
             flash('Current collection location updated. The claimant has been notified.', 'success')
             return redirect(url_for('lost_found_page', mine='1'))
 
@@ -1740,8 +1753,8 @@ def lost_found_page():
     con = get_db()
     sql = "SELECT lf.*,COALESCE(w.name,u.name) poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id LEFT JOIN workers w ON w.id=lf.posted_by_worker_id WHERE 1=1"
     params = []
-    if mine and (require('student') or require('worker')):
-        sql += ' AND lf.user_id=?'
+    if mine and require('student'):
+        sql += ' AND lf.user_id=? AND lf.posted_by_worker_id IS NULL'
         params.append(session['user_id'])
     elif mine and require('worker'):
         sql += ' AND lf.posted_by_worker_id=?'
@@ -1780,9 +1793,9 @@ def lost_found_page():
     <div class="lf-stats"><div class="lf-stat"><strong>{{open_count}}</strong><span>Open items on campus</span></div><div class="lf-stat"><strong>{{items|length}}</strong><span>Items in this view</span></div>{% if session.get('role') in ('student','worker') %}<div class="lf-stat"><strong>{{mine_count}}</strong><span>Your total listings</span></div>{% else %}<div class="lf-stat"><strong>Private</strong><span>Student contact details are protected</span></div>{% endif %}</div>
     {% if session.get('role') in ('student','worker') %}<div class="card" style="margin-bottom:24px"><div style="margin-bottom:20px"><h3 style="margin:0 0 7px;font-size:17px">＋ Report a lost or found item</h3><p class="muted" style="margin:0;font-size:12px;line-height:1.7">Complete the required fields below. Add a photo if you have one, and avoid sharing passwords or sensitive ID/bank details.</p></div><form method="POST" enctype="multipart/form-data" id="lf-create-form"><input type="hidden" name="action" value="create"><div class="form-grid"><div><label>Report type *</label><select name="item_type" required><option value="Lost">I lost an item</option><option value="Found">I found an item</option></select></div><div><label>Category *</label><select name="category" required><option value="">Choose a category</option>{% for c in categories_lf %}<option>{{c}}</option>{% endfor %}</select></div><div class="full"><label>Item name / title *</label><input name="title" required maxlength="140" placeholder="Example: Black water bottle, notebook, keys"></div><div><label>Location *</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen…"></div><div><label>Date lost / found</label><input type="date" name="item_date" max="{{today}}"></div><div class="full"><label>Description *</label><textarea name="description" required maxlength="2000" placeholder="Describe the item, its colour or identifying features, and where it was last seen or found."></textarea></div><div class="full"><label>Additional identifying detail (optional)</label><input name="description_hint" maxlength="120" placeholder="Brand, colour, initials or a distinguishing mark"></div><div class="full lf-upload-box"><label>Item photo (optional)</label><input id="lf-photo-input" type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><img id="lf-photo-preview" class="lf-preview" alt="Selected item photo preview"><p class="lf-note">Accepted formats: PNG, JPG, JPEG, GIF or WEBP. Maximum size: 5 MB. Avoid uploading faces, full ID cards or bank details.</p></div></div><div class="form-actions"><a class="btn btn-light" href="{{url_for('student_dashboard')}}">Cancel</a><button class="btn btn-primary" type="submit">Submit item report →</button></div></form></div>{% endif %}
     <div class="section-title"><h3>{{'My listings' if mine else 'Campus lost & found reports'}}</h3><span>{{items|length}} shown · {{open_count}} open</span></div>
-    <div class="lf-switch"><a href="{{url_for('lost_found_page')}}" class="{{'active' if not mine else ''}}">Browse open items</a>{% if session.get('role')=='student' %}<a href="{{url_for('lost_found_page',mine='1')}}" class="{{'active' if mine else ''}}">My listings</a>{% endif %}</div>
+    <div class="lf-switch"><a href="{{url_for('lost_found_page')}}" class="{{'active' if not mine else ''}}">Browse open items</a>{% if session.get('role') in ('student','worker') %}<a href="{{url_for('lost_found_page',mine='1')}}" class="{{'active' if mine else ''}}">My listings</a>{% endif %}</div>
     <form class="lf-filters" method="GET"><input name="q" value="{{query}}" placeholder="Search item, description or location"><select name="type"><option value="">Lost and found</option><option value="Lost" {{'selected' if type_filter=='Lost' else ''}}>Lost items</option><option value="Found" {{'selected' if type_filter=='Found' else ''}}>Found items</option></select><select name="category"><option value="">All categories</option>{% for c in categories_lf %}<option value="{{c}}" {{'selected' if category_filter==c else ''}}>{{c}}</option>{% endfor %}</select>{% if mine %}<input type="hidden" name="mine" value="1">{% endif %}<button class="btn btn-light" type="submit">Search / Filter</button></form>
-    <div class="lf-list">{% for item in items %}<article class="lf-row">{% if item['image_data'] or item['image_path'] %}<img class="lf-thumb" src="{{item['image_path'] if item['image_path'] and item['image_path'].startswith('https://') else url_for('lost_found_image',item_id=item['id'])}}" alt="Photo of {{item['title']}}" loading="lazy">{% else %}<div class="lf-thumb lf-thumb-empty">{% if item['category']=='Electronics' %}▣{% elif item['category']=='Books & Notes' %}▤{% elif item['category']=='Keys' %}⚿{% elif item['category']=='Bags' %}▱{% else %}⌕{% endif %}</div>{% endif %}<div class="lf-row-main"><div class="lf-badges"><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span><span class="chip submitted">{{item['category'] or 'Other'}}</span><span class="chip {{'closed' if item['status']!='Open' else 'progress'}}">{{item['status']}}</span></div><div class="lf-row-title">{{item['title']}}</div><div class="lf-row-desc">{{item['description']}}</div><div class="lf-row-meta">📍 {{'Current collection location: ' ~ item['current_location'] if item['current_location'] else item['location']}} · Posted by {{item['poster_name']}} · {{item['created_at']}}{% if item['item_date'] %} · Date lost/found: {{item['item_date']}}{% endif %}</div></div><div class="lf-row-actions">{% if session.get('role')=='student' and item['user_id'] != session.get('user_id') and item['status']=='Open' %}<form method="POST"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-primary" type="submit">Request to claim</button></form>{% endif %}{% if session.get('role')=='student' and item['user_id']==session.get('user_id') and item['status']=='Open' %}{% if item['claim_status']=='Requested' and item['claim_user_id'] %}<form method="POST" style="min-width:230px"><input type="hidden" name="action" value="update_claim_location"><input type="hidden" name="item_id" value="{{item['id']}}"><label>Update current collection location</label><input name="current_location" required maxlength="200" placeholder="Exact pickup location"><button class="btn btn-primary" type="submit">Share location with claimant</button></form>{% elif item['claim_status']=='Location updated' %}<span class="chip resolved">Location shared with claimant</span>{% endif %}<a class="btn btn-light" href="{{url_for('lost_found_edit',item_id=item['id'])}}">Edit</a><form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" onsubmit="return confirm('Mark this item as resolved?')"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}{% if session.get('role')=='admin' and item['status']=='Open' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}"><button class="btn btn-light" type="submit">Close listing</button></form>{% endif %}</div></article>{% else %}<div class="empty">No listings match these filters. Try another search or publish a new listing.</div>{% endfor %}</div>
+    <div class="lf-list">{% for item in items %}<article class="lf-row">{% if item['image_data'] or item['image_path'] %}<img class="lf-thumb" src="{{item['image_path'] if item['image_path'] and item['image_path'].startswith('https://') else url_for('lost_found_image',item_id=item['id'])}}" alt="Photo of {{item['title']}}" loading="lazy">{% else %}<div class="lf-thumb lf-thumb-empty">{% if item['category']=='Electronics' %}▣{% elif item['category']=='Books & Notes' %}▤{% elif item['category']=='Keys' %}⚿{% elif item['category']=='Bags' %}▱{% else %}⌕{% endif %}</div>{% endif %}<div class="lf-row-main"><div class="lf-badges"><span class="chip {{'emergency' if item['item_type']=='Lost' else 'resolved'}}">{{item['item_type']}}</span><span class="chip submitted">{{item['category'] or 'Other'}}</span><span class="chip {{'closed' if item['status']!='Open' else 'progress'}}">{{item['status']}}</span></div><div class="lf-row-title">{{item['title']}}</div><div class="lf-row-desc">{{item['description']}}</div><div class="lf-row-meta">📍 {{'Current collection location: ' ~ item['current_location'] if item['current_location'] else item['location']}} · Posted by {{item['poster_name']}} · {{item['created_at']}}{% if item['item_date'] %} · Date lost/found: {{item['item_date']}}{% endif %}</div></div><div class="lf-row-actions">{% if session.get('role') in ('student','worker') and item['status']=='Open' and not ((session.get('role')=='student' and not item['posted_by_worker_id'] and item['user_id']==session.get('user_id')) or (session.get('role')=='worker' and item['posted_by_worker_id']==session.get('worker_id'))) %}<form method="POST"><input type="hidden" name="action" value="claim"><input type="hidden" name="item_id" value="{{item['id']}}"><button class="btn btn-primary" type="submit">Request to claim</button></form>{% endif %}{% if item['status']=='Open' and ((session.get('role')=='student' and not item['posted_by_worker_id'] and item['user_id']==session.get('user_id')) or (session.get('role')=='worker' and item['posted_by_worker_id']==session.get('worker_id'))) %}{% if item['claim_status']=='Requested' and (item['claim_user_id'] or item['claim_worker_id']) %}<form method="POST" style="min-width:230px"><input type="hidden" name="action" value="update_claim_location"><input type="hidden" name="item_id" value="{{item['id']}}"><label>Update current collection location</label><input name="current_location" required maxlength="200" placeholder="Exact pickup location"><button class="btn btn-primary" type="submit">Share location with claimant</button></form>{% elif item['claim_status']=='Location updated' %}<span class="chip resolved">Location shared with claimant</span>{% endif %}<a class="btn btn-light" href="{{url_for('lost_found_edit',item_id=item['id'])}}">Edit</a><form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}" onsubmit="return confirm('Mark this item as resolved?')"><button class="btn btn-light" type="submit">Mark resolved</button></form>{% endif %}{% if session.get('role')=='admin' and item['status']=='Open' %}<form method="POST" action="{{url_for('lost_found_close',item_id=item['id'])}}"><button class="btn btn-light" type="submit">Close listing</button></form>{% endif %}</div></article>{% else %}<div class="empty">No listings match these filters. Try another search or publish a new listing.</div>{% endfor %}</div>
     <script>(function(){const input=document.getElementById('lf-photo-input');const preview=document.getElementById('lf-photo-preview');if(!input||!preview)return;input.addEventListener('change',function(){const f=input.files&&input.files[0];if(!f){preview.style.display='none';preview.removeAttribute('src');return;}if(f.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');input.value='';preview.style.display='none';return;}if(!['image/png','image/jpeg','image/gif','image/webp'].includes(f.type)){alert('Choose a PNG, JPG, GIF or WEBP image.');input.value='';preview.style.display='none';return;}preview.src=URL.createObjectURL(f);preview.style.display='block';});})();</script>''', items=items, query=query, type_filter=item_type_filter, category_filter=category_filter, mine=mine,
        categories_lf=LOST_FOUND_CATEGORIES, mine_count=mine_count, open_count=open_count,
        today=__import__('datetime').date.today().isoformat())
