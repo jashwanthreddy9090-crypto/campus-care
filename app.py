@@ -1645,13 +1645,18 @@ def lost_found_page():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        if not require('student'):
-            flash('Only student accounts can post or claim a lost/found item.', 'error')
+        is_student = bool(require('student') and session.get('user_id'))
+        is_worker = bool(require('worker') and session.get('worker_id'))
+        if not (is_student or is_worker):
+            flash('Sign in as a student or worker to post or claim an item.', 'error')
             return redirect(url_for('lost_found_page'))
 
         action = request.form.get('action', 'create')
         con = get_db()
         if action == 'claim':
+            if not is_student:
+                con.close(); flash('Only students can request to claim an item.', 'error')
+                return redirect(url_for('lost_found_page'))
             item_id = request.form.get('item_id', '')
             item = con.execute("SELECT * FROM lost_found WHERE id=? AND status='Open' AND (claim_status IS NULL OR claim_status='')", (item_id,)).fetchone() if item_id.isdigit() else None
             if item and item['user_id'] != session.get('user_id'):
@@ -1669,6 +1674,9 @@ def lost_found_page():
             return redirect(url_for('lost_found_page'))
 
         if action == 'update_claim_location':
+            if not is_student:
+                con.close(); flash('Only the student who posted the item can update its collection location.', 'error')
+                return redirect(url_for('lost_found_page', mine='1'))
             item_id = request.form.get('item_id', '')
             current_location = request.form.get('current_location', '').strip()[:200]
             item = con.execute("SELECT id,title,claim_user_id FROM lost_found WHERE id=? AND user_id=? AND status='Open' AND claim_status='Requested'", (item_id, session['user_id'])).fetchone() if item_id.isdigit() else None
@@ -1708,8 +1716,14 @@ def lost_found_page():
             except ValueError as exc:
                 con.close(); flash(str(exc), 'error')
                 return redirect(url_for('lost_found_page'))
+            poster_user_id = session['user_id'] if is_student else con.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+            if not is_student:
+                poster_user_id = poster_user_id['id'] if poster_user_id else None
+            if not poster_user_id:
+                con.close(); flash('Could not create the listing owner. Please contact an administrator.', 'error')
+                return redirect(url_for('lost_found_page'))
             con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date,category,image_path,image_data,image_mime) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                        (session['user_id'], item_type, title, desc, location, item_date, category, '', image_data, image_mime))
+                        (poster_user_id, item_type, title, desc, location, item_date, category, '', image_data, image_mime))
             con.commit(); con.close()
             flash('Your listing has been posted successfully.', 'success')
             return redirect(url_for('lost_found_page', mine='1'))
@@ -1720,13 +1734,15 @@ def lost_found_page():
     query = request.args.get('q', '').strip()[:100]
     item_type_filter = request.args.get('type', '').strip()
     category_filter = request.args.get('category', '').strip()
-    mine = request.args.get('mine') == '1' and require('student')
+    mine = request.args.get('mine') == '1' and (require('student') or require('worker'))
     con = get_db()
     sql = "SELECT lf.*,u.name poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id WHERE 1=1"
     params = []
-    if mine:
+    if mine and require('student'):
         sql += ' AND lf.user_id=?'
         params.append(session['user_id'])
+    elif mine and require('worker'):
+        sql += " AND lf.id IN (SELECT id FROM lost_found WHERE 1=0)"
     else:
         sql += " AND lf.status='Open'"
     if query:
@@ -1740,6 +1756,8 @@ def lost_found_page():
     items = con.execute(sql, params).fetchall()
     if require('student'):
         mine_count = con.execute('SELECT COUNT(*) AS n FROM lost_found WHERE user_id=?', (session['user_id'],)).fetchone()['n']
+    elif require('worker'):
+        mine_count = 0
     else:
         mine_count = 0
     open_count = con.execute("SELECT COUNT(*) AS n FROM lost_found WHERE status='Open'").fetchone()['n']
@@ -1756,8 +1774,8 @@ def lost_found_page():
     @media(max-width:760px){.lf-filters{grid-template-columns:1fr}.lf-stats{grid-template-columns:1fr 1fr}.lf-stat:last-child{grid-column:1/-1}.lf-row{grid-template-columns:62px minmax(0,1fr);gap:12px;padding:12px}.lf-thumb{width:62px;height:62px}.lf-row-actions{grid-column:1/-1;justify-content:flex-start}.lf-row-title{font-size:13px}}
     </style>
     <div class="page-head"><div><div class="eyebrow">COMMUNITY CARE · STUDENT EXCHANGE</div><h1>Lost & Found</h1><p>Use the same simple report form as campus complaints to report a lost or found item, add a photo and follow up on listings.</p></div></div>
-    <div class="lf-stats"><div class="lf-stat"><strong>{{open_count}}</strong><span>Open items on campus</span></div><div class="lf-stat"><strong>{{items|length}}</strong><span>Items in this view</span></div>{% if session.get('role')=='student' %}<div class="lf-stat"><strong>{{mine_count}}</strong><span>Your total listings</span></div>{% else %}<div class="lf-stat"><strong>Private</strong><span>Student contact details are protected</span></div>{% endif %}</div>
-    {% if session.get('role')=='student' %}<div class="card" style="margin-bottom:24px"><div style="margin-bottom:20px"><h3 style="margin:0 0 7px;font-size:17px">＋ Report a lost or found item</h3><p class="muted" style="margin:0;font-size:12px;line-height:1.7">Complete the required fields below. Add a photo if you have one, and avoid sharing passwords or sensitive ID/bank details.</p></div><form method="POST" enctype="multipart/form-data" id="lf-create-form"><input type="hidden" name="action" value="create"><div class="form-grid"><div><label>Report type *</label><select name="item_type" required><option value="Lost">I lost an item</option><option value="Found">I found an item</option></select></div><div><label>Category *</label><select name="category" required><option value="">Choose a category</option>{% for c in categories_lf %}<option>{{c}}</option>{% endfor %}</select></div><div class="full"><label>Item name / title *</label><input name="title" required maxlength="140" placeholder="Example: Black water bottle, notebook, keys"></div><div><label>Location *</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen…"></div><div><label>Date lost / found</label><input type="date" name="item_date" max="{{today}}"></div><div class="full"><label>Description *</label><textarea name="description" required maxlength="2000" placeholder="Describe the item, its colour or identifying features, and where it was last seen or found."></textarea></div><div class="full"><label>Additional identifying detail (optional)</label><input name="description_hint" maxlength="120" placeholder="Brand, colour, initials or a distinguishing mark"></div><div class="full lf-upload-box"><label>Item photo (optional)</label><input id="lf-photo-input" type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><img id="lf-photo-preview" class="lf-preview" alt="Selected item photo preview"><p class="lf-note">Accepted formats: PNG, JPG, JPEG, GIF or WEBP. Maximum size: 5 MB. Avoid uploading faces, full ID cards or bank details.</p></div></div><div class="form-actions"><a class="btn btn-light" href="{{url_for('student_dashboard')}}">Cancel</a><button class="btn btn-primary" type="submit">Submit item report →</button></div></form></div>{% endif %}
+    <div class="lf-stats"><div class="lf-stat"><strong>{{open_count}}</strong><span>Open items on campus</span></div><div class="lf-stat"><strong>{{items|length}}</strong><span>Items in this view</span></div>{% if session.get('role') in ('student','worker') %}<div class="lf-stat"><strong>{{mine_count}}</strong><span>Your total listings</span></div>{% else %}<div class="lf-stat"><strong>Private</strong><span>Student contact details are protected</span></div>{% endif %}</div>
+    {% if session.get('role') in ('student','worker') %}<div class="card" style="margin-bottom:24px"><div style="margin-bottom:20px"><h3 style="margin:0 0 7px;font-size:17px">＋ Report a lost or found item</h3><p class="muted" style="margin:0;font-size:12px;line-height:1.7">Complete the required fields below. Add a photo if you have one, and avoid sharing passwords or sensitive ID/bank details.</p></div><form method="POST" enctype="multipart/form-data" id="lf-create-form"><input type="hidden" name="action" value="create"><div class="form-grid"><div><label>Report type *</label><select name="item_type" required><option value="Lost">I lost an item</option><option value="Found">I found an item</option></select></div><div><label>Category *</label><select name="category" required><option value="">Choose a category</option>{% for c in categories_lf %}<option>{{c}}</option>{% endfor %}</select></div><div class="full"><label>Item name / title *</label><input name="title" required maxlength="140" placeholder="Example: Black water bottle, notebook, keys"></div><div><label>Location *</label><input name="location" required maxlength="200" placeholder="Library, Block B, canteen…"></div><div><label>Date lost / found</label><input type="date" name="item_date" max="{{today}}"></div><div class="full"><label>Description *</label><textarea name="description" required maxlength="2000" placeholder="Describe the item, its colour or identifying features, and where it was last seen or found."></textarea></div><div class="full"><label>Additional identifying detail (optional)</label><input name="description_hint" maxlength="120" placeholder="Brand, colour, initials or a distinguishing mark"></div><div class="full lf-upload-box"><label>Item photo (optional)</label><input id="lf-photo-input" type="file" name="item_photo" accept="image/png,image/jpeg,image/gif,image/webp"><img id="lf-photo-preview" class="lf-preview" alt="Selected item photo preview"><p class="lf-note">Accepted formats: PNG, JPG, JPEG, GIF or WEBP. Maximum size: 5 MB. Avoid uploading faces, full ID cards or bank details.</p></div></div><div class="form-actions"><a class="btn btn-light" href="{{url_for('student_dashboard')}}">Cancel</a><button class="btn btn-primary" type="submit">Submit item report →</button></div></form></div>{% endif %}
     <div class="section-title"><h3>{{'My listings' if mine else 'Campus lost & found reports'}}</h3><span>{{items|length}} shown · {{open_count}} open</span></div>
     <div class="lf-switch"><a href="{{url_for('lost_found_page')}}" class="{{'active' if not mine else ''}}">Browse open items</a>{% if session.get('role')=='student' %}<a href="{{url_for('lost_found_page',mine='1')}}" class="{{'active' if mine else ''}}">My listings</a>{% endif %}</div>
     <form class="lf-filters" method="GET"><input name="q" value="{{query}}" placeholder="Search item, description or location"><select name="type"><option value="">Lost and found</option><option value="Lost" {{'selected' if type_filter=='Lost' else ''}}>Lost items</option><option value="Found" {{'selected' if type_filter=='Found' else ''}}>Found items</option></select><select name="category"><option value="">All categories</option>{% for c in categories_lf %}<option value="{{c}}" {{'selected' if category_filter==c else ''}}>{{c}}</option>{% endfor %}</select>{% if mine %}<input type="hidden" name="mine" value="1">{% endif %}<button class="btn btn-light" type="submit">Search / Filter</button></form>
