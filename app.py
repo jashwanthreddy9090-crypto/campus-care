@@ -534,53 +534,52 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',setupMobileMenu);}else{setupMobileMenu();}
   function setupLiveNotifications(){
     if(!('fetch' in window)) return;
-    var lastId=0, initialized=false, audioContext=null, audioUnlocked=false, pendingSounds=0;
+    var lastId=0, initialized=false, audioContext=null, pendingSounds=0, audioReady=false;
+    function playTone(){
+      if(!audioContext || audioContext.state!=='running')return false;
+      try{
+        var osc=audioContext.createOscillator(), gain=audioContext.createGain();
+        var now=audioContext.currentTime;
+        osc.type='sine';
+        osc.frequency.setValueAtTime(880,now);
+        osc.frequency.setValueAtTime(660,now+0.16);
+        gain.gain.setValueAtTime(0.0001,now);
+        gain.gain.exponentialRampToValueAtTime(0.28,now+0.025);
+        gain.gain.setValueAtTime(0.28,now+0.18);
+        gain.gain.exponentialRampToValueAtTime(0.0001,now+0.48);
+        osc.connect(gain);gain.connect(audioContext.destination);
+        osc.start(now);osc.stop(now+0.49);
+        return true;
+      }catch(e){return false;}
+    }
     function unlockAudio(){
       try{
         var Ctx=window.AudioContext||window.webkitAudioContext;
         if(!Ctx)return;
         audioContext=audioContext||new Ctx();
-        var resume=audioContext.resume();
-        var oscillator=audioContext.createOscillator(), gain=audioContext.createGain();
-        gain.gain.value=0.00001;
-        oscillator.connect(gain);gain.connect(audioContext.destination);
-        oscillator.start();oscillator.stop(audioContext.currentTime+0.02);
-        Promise.resolve(resume).then(function(){
-          audioUnlocked=audioContext.state==='running';
-          if(audioUnlocked && pendingSounds){
-            var count=Math.min(pendingSounds,3);pendingSounds=0;
-            for(var i=0;i<count;i++)playAlert();
+        var resumePromise=audioContext.state==='suspended'?audioContext.resume():Promise.resolve();
+        Promise.resolve(resumePromise).then(function(){
+          if(audioContext.state!=='running')return;
+          audioReady=true;
+          if(pendingSounds>0){
+            var queued=Math.min(pendingSounds,3);pendingSounds=0;
+            for(var i=0;i<queued;i++)playTone();
           }
+          ['pointerdown','touchend','click','keydown'].forEach(function(name){
+            document.removeEventListener(name,unlockAudio,true);
+          });
         }).catch(function(){});
       }catch(e){}
     }
-    function playAlert(){
-      try{
-        var Ctx=window.AudioContext||window.webkitAudioContext;
-        if(!Ctx)return;
-        audioContext=audioContext||new Ctx();
-        if(audioContext.state!=='running'){
-          pendingSounds++;
-          return;
-        }
-        var osc=audioContext.createOscillator(), gain=audioContext.createGain();
-        osc.type='sine';
-        osc.frequency.setValueAtTime(880,audioContext.currentTime);
-        osc.frequency.setValueAtTime(660,audioContext.currentTime+0.14);
-        gain.gain.setValueAtTime(0.0001,audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.22,audioContext.currentTime+0.025);
-        gain.gain.setValueAtTime(0.22,audioContext.currentTime+0.16);
-        gain.gain.exponentialRampToValueAtTime(0.0001,audioContext.currentTime+0.42);
-        osc.connect(gain);gain.connect(audioContext.destination);
-        osc.start();osc.stop(audioContext.currentTime+0.43);
-      }catch(e){}
-    }
-    ['pointerdown','touchstart','keydown'].forEach(function(eventName){
-      document.addEventListener(eventName,unlockAudio,{once:true,passive:true});
+    ['pointerdown','touchend','click','keydown'].forEach(function(name){
+      document.addEventListener(name,unlockAudio,true);
     });
+    function playAlert(){
+      if(!audioReady || !playTone())pendingSounds++;
+    }
     function poll(){
       fetch('/api/notifications/poll?after='+lastId,{credentials:'same-origin',cache:'no-store'})
-      .then(function(r){if(!r.ok)throw new Error('not signed in');return r.json();})
+      .then(function(r){if(!r.ok)throw new Error('notification poll failed');return r.json();})
       .then(function(data){
         if(!data.ok)return;
         if(!initialized){lastId=Number(data.latest_id||0);initialized=true;return;}
@@ -594,9 +593,9 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
           }
         });
         lastId=Math.max(lastId,Number(data.latest_id||0));
-      }).catch(function(){});
+      }).catch(function(e){});
     }
-    poll();window.setInterval(poll,15000);
+    poll();window.setInterval(poll,8000);
   }
   function addPasswordToggles(){
     document.querySelectorAll('input[type="password"]:not([data-toggle-ready])').forEach(function(input){
