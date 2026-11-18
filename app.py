@@ -336,6 +336,8 @@ def initialize_database():
         con.execute("ALTER TABLE lost_found ADD COLUMN image_path TEXT DEFAULT ''")
     if "category" not in existing_lf:
         con.execute("ALTER TABLE lost_found ADD COLUMN category TEXT DEFAULT 'Other'")
+    if "posted_by_worker_id" not in existing_lf:
+        con.execute("ALTER TABLE lost_found ADD COLUMN posted_by_worker_id INTEGER DEFAULT NULL")
     if "image_data" not in existing_lf:
         con.execute("ALTER TABLE lost_found ADD COLUMN image_data TEXT DEFAULT ''")
     if "image_mime" not in existing_lf:
@@ -1722,8 +1724,8 @@ def lost_found_page():
             if not poster_user_id:
                 con.close(); flash('Could not create the listing owner. Please contact an administrator.', 'error')
                 return redirect(url_for('lost_found_page'))
-            con.execute('INSERT INTO lost_found(user_id,item_type,title,description,location,item_date,category,image_path,image_data,image_mime) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                        (poster_user_id, item_type, title, desc, location, item_date, category, '', image_data, image_mime))
+            con.execute('INSERT INTO lost_found(user_id,posted_by_worker_id,item_type,title,description,location,item_date,category,image_path,image_data,image_mime) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                        (poster_user_id, session.get('worker_id') if is_worker else None, item_type, title, desc, location, item_date, category, '', image_data, image_mime))
             con.commit(); con.close()
             flash('Your listing has been posted successfully.', 'success')
             return redirect(url_for('lost_found_page', mine='1'))
@@ -1736,13 +1738,14 @@ def lost_found_page():
     category_filter = request.args.get('category', '').strip()
     mine = request.args.get('mine') == '1' and (require('student') or require('worker'))
     con = get_db()
-    sql = "SELECT lf.*,u.name poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id WHERE 1=1"
+    sql = "SELECT lf.*,COALESCE(w.name,u.name) poster_name FROM lost_found lf JOIN users u ON u.id=lf.user_id LEFT JOIN workers w ON w.id=lf.posted_by_worker_id WHERE 1=1"
     params = []
-    if mine and require('student'):
+    if mine and (require('student') or require('worker')):
         sql += ' AND lf.user_id=?'
         params.append(session['user_id'])
     elif mine and require('worker'):
-        sql += " AND lf.id IN (SELECT id FROM lost_found WHERE 1=0)"
+        sql += ' AND lf.posted_by_worker_id=?'
+        params.append(session['worker_id'])
     else:
         sql += " AND lf.status='Open'"
     if query:
@@ -1757,7 +1760,7 @@ def lost_found_page():
     if require('student'):
         mine_count = con.execute('SELECT COUNT(*) AS n FROM lost_found WHERE user_id=?', (session['user_id'],)).fetchone()['n']
     elif require('worker'):
-        mine_count = 0
+        mine_count = con.execute('SELECT COUNT(*) AS n FROM lost_found WHERE posted_by_worker_id=?', (session['worker_id'],)).fetchone()['n']
     else:
         mine_count = 0
     open_count = con.execute("SELECT COUNT(*) AS n FROM lost_found WHERE status='Open'").fetchone()['n']
