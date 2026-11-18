@@ -534,22 +534,50 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',setupMobileMenu);}else{setupMobileMenu();}
   function setupLiveNotifications(){
     if(!('fetch' in window)) return;
-    var lastId=0, initialized=false, audioContext=null;
+    var lastId=0, initialized=false, audioContext=null, audioUnlocked=false, pendingSounds=0;
+    function unlockAudio(){
+      try{
+        var Ctx=window.AudioContext||window.webkitAudioContext;
+        if(!Ctx)return;
+        audioContext=audioContext||new Ctx();
+        var resume=audioContext.resume();
+        var oscillator=audioContext.createOscillator(), gain=audioContext.createGain();
+        gain.gain.value=0.00001;
+        oscillator.connect(gain);gain.connect(audioContext.destination);
+        oscillator.start();oscillator.stop(audioContext.currentTime+0.02);
+        Promise.resolve(resume).then(function(){
+          audioUnlocked=audioContext.state==='running';
+          if(audioUnlocked && pendingSounds){
+            var count=Math.min(pendingSounds,3);pendingSounds=0;
+            for(var i=0;i<count;i++)playAlert();
+          }
+        }).catch(function(){});
+      }catch(e){}
+    }
     function playAlert(){
       try{
         var Ctx=window.AudioContext||window.webkitAudioContext;
         if(!Ctx)return;
         audioContext=audioContext||new Ctx();
-        if(audioContext.state==='suspended')audioContext.resume();
+        if(audioContext.state!=='running'){
+          pendingSounds++;
+          return;
+        }
         var osc=audioContext.createOscillator(), gain=audioContext.createGain();
-        osc.type='sine';osc.frequency.setValueAtTime(880,audioContext.currentTime);
-        osc.frequency.setValueAtTime(660,audioContext.currentTime+0.12);
+        osc.type='sine';
+        osc.frequency.setValueAtTime(880,audioContext.currentTime);
+        osc.frequency.setValueAtTime(660,audioContext.currentTime+0.14);
         gain.gain.setValueAtTime(0.0001,audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.16,audioContext.currentTime+0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001,audioContext.currentTime+0.35);
-        osc.connect(gain);gain.connect(audioContext.destination);osc.start();osc.stop(audioContext.currentTime+0.36);
+        gain.gain.exponentialRampToValueAtTime(0.22,audioContext.currentTime+0.025);
+        gain.gain.setValueAtTime(0.22,audioContext.currentTime+0.16);
+        gain.gain.exponentialRampToValueAtTime(0.0001,audioContext.currentTime+0.42);
+        osc.connect(gain);gain.connect(audioContext.destination);
+        osc.start();osc.stop(audioContext.currentTime+0.43);
       }catch(e){}
     }
+    ['pointerdown','touchstart','keydown'].forEach(function(eventName){
+      document.addEventListener(eventName,unlockAudio,{once:true,passive:true});
+    });
     function poll(){
       fetch('/api/notifications/poll?after='+lastId,{credentials:'same-origin',cache:'no-store'})
       .then(function(r){if(!r.ok)throw new Error('not signed in');return r.json();})
@@ -559,8 +587,10 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
         (data.notifications||[]).forEach(function(n){
           lastId=Math.max(lastId,Number(n.id||0));playAlert();
           if('Notification' in window && Notification.permission==='granted'){
-            var notice=new Notification(n.title||'Campus Care 360',{body:n.message||'You have a new update.',tag:'campus-care-'+n.id});
-            notice.onclick=function(){window.focus();if(n.link)window.location.href=n.link;};
+            try{
+              var notice=new Notification(n.title||'Campus Care 360',{body:n.message||'You have a new update.',tag:'campus-care-'+n.id});
+              notice.onclick=function(){window.focus();if(n.link)window.location.href=n.link;};
+            }catch(e){}
           }
         });
         lastId=Math.max(lastId,Number(data.latest_id||0));
