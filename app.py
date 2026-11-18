@@ -1463,11 +1463,17 @@ def lost_found_page():
             item = con.execute("SELECT * FROM lost_found WHERE id=? AND status='Open'", (item_id,)).fetchone() if item_id.isdigit() else None
             if item and item['user_id'] != session.get('user_id'):
                 owner_id, item_title = item['user_id'], item['title']
+                pickup_location = item['location']
                 con.close()
+                # Notify the listing owner that someone is interested, and give
+                # the claiming student the collection location from the listing.
                 create_notification('user', owner_id, 'Lost & Found claim request',
                                     f"{session.get('name','A student')} is asking about your listing: {item_title}.",
                                     url_for('lost_found_page', mine='1'))
-                flash('Claim request sent to the poster. Their contact details remain private.', 'success')
+                create_notification('user', session['user_id'], 'Collection location for claimed item',
+                                    f"To collect '{item_title}', please go to the listed location: {pickup_location}. Please coordinate with the person who posted it before collecting.",
+                                    url_for('lost_found_page'))
+                flash(f'Claim request sent. Collection location: {pickup_location}. Check your notifications for the details.', 'success')
             else:
                 con.close()
                 flash('That item is no longer available or belongs to your account.', 'error')
