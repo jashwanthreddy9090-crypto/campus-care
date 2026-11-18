@@ -501,7 +501,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
 {% if session.get('user_id') or session.get('worker_id') %}<div class="app"><aside class="sidebar" id="sidebar"><div class="brand"><img class="uploaded-campus-logo" src="{{ url_for('campus_care_logo', v='logo-20261011-final') }}" alt="Campus Care 360 original logo"><div><h2>Campus Care 360</h2><small>Campus support hub</small></div></div><div class="side-label">{{ 'ADMIN SPACE' if session.get('role')=='admin' else ('WORKER SPACE' if session.get('role')=='worker' else 'STUDENT SPACE') }}</div><nav class="nav">
 <a href="{{url_for('emergency_help')}}" class="sos-menu"><span class="nav-icon">🆘</span>Emergency / SOS</a>
 {% if session.get('role')=='admin' %}<a href="{{url_for('admin_dashboard')}}" class="{{'active' if request.endpoint=='admin_dashboard' else ''}}"><span class="nav-icon">▦</span>Dashboard</a><a href="{{url_for('admin_students')}}" class="{{'active' if request.endpoint=='admin_students' else ''}}"><span class="nav-icon">👨‍🎓</span>Students</a><a href="{{url_for('admin_workers')}}" class="{{'active' if request.endpoint=='admin_workers' else ''}}"><span class="nav-icon">🧰</span>Workers & Staff</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('admin_profile')}}" class="{{'active' if request.endpoint=='admin_profile' else ''}}"><span class="nav-icon">⚙</span>Admin Profile</a><a href="{{url_for('admin_password_resets')}}" class="{{'active' if request.endpoint=='admin_password_resets' else ''}}"><span class="nav-icon">🔐</span>Password Requests</a>
-{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><div class="menu-backdrop" id="menuBackdrop" aria-hidden="true"></div><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE 360'}}</span></div><div class="top-right"><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
+{% elif session.get('role')=='worker' %}<a href="{{url_for('worker_dashboard')}}" class="{{'active' if request.endpoint=='worker_dashboard' else ''}}"><span class="nav-icon">▦</span>Assigned work</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('contacts')}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}"><span class="nav-icon">?</span>Help & Support</a>{% else %}<a href="{{url_for('student_dashboard')}}" class="{{'active' if request.endpoint=='student_dashboard' else ''}}"><span class="nav-icon">⌂</span>Dashboard</a><a href="{{url_for('new_complaint')}}" class="{{'active' if request.endpoint=='new_complaint' else ''}}"><span class="nav-icon">＋</span>New complaint</a><a href="{{url_for('contacts')}}" class="{{'active' if request.endpoint=='contacts' else ''}}"><span class="nav-icon">☎</span>Contacts</a><a href="{{url_for('help_support')}}" class="{{'active' if request.endpoint=='help_support' else ''}}"><span class="nav-icon">?</span>Help & Support</a><a href="{{url_for('student_profile')}}" class="{{'active' if request.endpoint=='student_profile' else ''}}"><span class="nav-icon">◉</span>My Profile</a><a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a>{% endif %}{% if session.get('role')=='admin' %}<a href="{{url_for('notices_page')}}"><span class="nav-icon">▤</span>Campus Notices</a><a href="{{url_for('notifications_page')}}"><span class="nav-icon">♢</span>Notifications</a><a href="{{url_for('lost_found_page')}}"><span class="nav-icon">⌕</span>Lost & Found</a>{% endif %}</nav><div class="side-bottom"><div class="user-mini"><div class="avatar">{{(session.get('name') or 'U')[0]|upper}}</div><div><strong>{{session.get('name')}}</strong><span>{{session.get('role')|capitalize}}</span></div></div><a class="logout" href="{{url_for('logout')}}">Sign out →</a></div></aside><div class="menu-backdrop" id="menuBackdrop" aria-hidden="true"></div><main class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button><span class="eyebrow">{{eyebrow or 'CAMPUS CARE 360'}}</span></div><div class="top-right"><button type="button" class="btn btn-light" id="enableAppNotifications" style="padding:9px 12px;font-size:11px" title="Enable phone notifications">🔔 Enable alerts</button><span class="chip" style="background:#f5e4df;color:#8f202a">● {{'Admin mode' if session.get('role')=='admin' else ('Worker mode' if session.get('role')=='worker' else 'Student mode')}}</span></div></header>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<section class="content">{{body|safe}}</section></main></div>{% else %}<div class="auth-wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:50;width:min(450px,90%)">{{message}}</div>{% endfor %}{% endwith %}{{body|safe}}</div>{% endif %}
 <script>
 (function(){
   function setupMobileMenu(){
@@ -532,6 +532,50 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
     window.addEventListener('resize',function(){if(window.innerWidth>760)closeMenu();});
   }
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',setupMobileMenu);}else{setupMobileMenu();}
+  function setupLiveNotifications(){
+    var button=document.getElementById('enableAppNotifications');
+    if(!button || !('fetch' in window)) return;
+    var lastId=0, initialized=false, audioContext=null;
+    function playAlert(){
+      try{
+        var Ctx=window.AudioContext||window.webkitAudioContext;
+        if(!Ctx)return;
+        audioContext=audioContext||new Ctx();
+        if(audioContext.state==='suspended')audioContext.resume();
+        var osc=audioContext.createOscillator(), gain=audioContext.createGain();
+        osc.type='sine';osc.frequency.setValueAtTime(880,audioContext.currentTime);
+        osc.frequency.setValueAtTime(660,audioContext.currentTime+0.12);
+        gain.gain.setValueAtTime(0.0001,audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.16,audioContext.currentTime+0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001,audioContext.currentTime+0.35);
+        osc.connect(gain);gain.connect(audioContext.destination);osc.start();osc.stop(audioContext.currentTime+0.36);
+      }catch(e){}
+    }
+    button.addEventListener('click',function(){
+      if(!('Notification' in window)){button.textContent='🔔 Browser alerts unavailable';return;}
+      Notification.requestPermission().then(function(permission){
+        button.textContent=permission==='granted'?'✓ Phone alerts enabled':(permission==='denied'?'Alerts blocked':'Alerts not enabled');
+        if(permission==='granted')new Notification('Campus Care 360',{body:'Notifications are enabled on this device.',icon:'/favicon.ico'});
+      });
+    });
+    function poll(){
+      fetch('/api/notifications/poll?after='+lastId,{credentials:'same-origin',cache:'no-store'})
+      .then(function(r){if(!r.ok)throw new Error('not signed in');return r.json();})
+      .then(function(data){
+        if(!data.ok)return;
+        if(!initialized){lastId=Number(data.latest_id||0);initialized=true;return;}
+        (data.notifications||[]).forEach(function(n){
+          lastId=Math.max(lastId,Number(n.id||0));playAlert();
+          if('Notification' in window && Notification.permission==='granted'){
+            var notice=new Notification(n.title||'Campus Care 360',{body:n.message||'You have a new update.',tag:'campus-care-'+n.id});
+            notice.onclick=function(){window.focus();if(n.link)window.location.href=n.link;};
+          }
+        });
+        lastId=Math.max(lastId,Number(data.latest_id||0));
+      }).catch(function(){});
+    }
+    poll();window.setInterval(poll,15000);
+  }
   function addPasswordToggles(){
     document.querySelectorAll('input[type="password"]:not([data-toggle-ready])').forEach(function(input){
       input.setAttribute('data-toggle-ready','true');
@@ -556,6 +600,7 @@ input:focus,select:focus,textarea:focus{border-color:#b44b55;box-shadow:0 0 0 4p
       wrap.appendChild(button);
     });
   }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',setupLiveNotifications);}else{setupLiveNotifications();}
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',addPasswordToggles);}else{addPasswordToggles();}
 })();
 </script>
@@ -1394,6 +1439,22 @@ def notices_page():
     {% if session.get('role')=='admin' %}<div class="card" style="margin-bottom:22px"><h3 style="margin-top:0">Publish an announcement</h3><form method="POST" class="form-grid"><div><label>Notice title</label><input name="title" required maxlength="160" placeholder="Example: Library hours updated"></div><div><label>Category</label><select name="category"><option>General</option><option>Academic</option><option>Hostel</option><option>Mess</option><option>Events</option><option>Safety</option><option>Transport</option></select></div><div><label>Priority</label><select name="priority"><option>Normal</option><option>Important</option><option>Urgent</option></select></div><div class="full"><label>Message</label><textarea name="body" required maxlength="3000" placeholder="Write clear, verified information for students"></textarea></div><div><button class="btn btn-primary" type="submit">Publish notice →</button></div></form></div>{% endif %}
     <div class="admin-list">{% for n in notices %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{n['category']}} · {{n['created_at']}}</div><div class="admin-title">{{n['title']}}</div></div><span class="chip {{'emergency' if n['priority']=='Urgent' else ('progress' if n['priority']=='Important' else 'submitted')}}">{{n['priority']}}</span></div><p class="admin-desc" style="white-space:pre-wrap">{{n['body']}}</p></article>{% else %}<div class="empty">No notices have been published yet.</div>{% endfor %}</div>''', notices=notices)
     return render_page(body, 'Campus Notices', 'CAMPUS BULLETIN')
+
+
+@app.route('/api/notifications/poll')
+def poll_notifications():
+    if not session.get('user_id') and not session.get('worker_id'):
+        return jsonify({'ok': False, 'error': 'login_required'}), 401
+    kind, ident = account_identity()
+    try:
+        after = max(0, int(request.args.get('after', '0')))
+    except (TypeError, ValueError):
+        after = 0
+    con = get_db()
+    latest = con.execute('SELECT COALESCE(MAX(id),0) AS latest_id FROM notifications WHERE account_type=? AND account_id=?', (kind, ident)).fetchone()['latest_id']
+    rows = con.execute('SELECT id,title,message,link,created_at FROM notifications WHERE account_type=? AND account_id=? AND id>? ORDER BY id ASC LIMIT 20', (kind, ident, after)).fetchall()
+    con.close()
+    return jsonify({'ok': True, 'latest_id': latest, 'notifications': [dict(r) for r in rows]})
 
 
 @app.route('/notifications', methods=['GET', 'POST'])
