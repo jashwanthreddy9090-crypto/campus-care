@@ -246,6 +246,17 @@ def initialize_database():
         FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(assigned_worker_id) REFERENCES workers(id)
     );
+    CREATE TABLE IF NOT EXISTS worker_job_uploads(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        complaint_id INTEGER NOT NULL,
+        worker_id INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        file_data TEXT NOT NULL,
+        file_mime TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(complaint_id) REFERENCES complaints(id),
+        FOREIGN KEY(worker_id) REFERENCES workers(id)
+    );
     CREATE TABLE IF NOT EXISTS feedback(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         complaint_id INTEGER NOT NULL,
@@ -830,9 +841,78 @@ def worker_dashboard():
         WHERE c.assigned_worker_id=? AND (c.status IN ('Resolved','Closed') OR EXISTS
         (SELECT 1 FROM feedback f_done WHERE f_done.complaint_id=c.id))
         ORDER BY c.created_at DESC LIMIT 100""",(session['worker_id'],)).fetchall()
+    uploads = con.execute("""SELECT f.*,c.complaint_id FROM worker_job_uploads f
+        JOIN complaints c ON c.id=f.complaint_id
+        WHERE f.worker_id=? ORDER BY f.created_at DESC LIMIT 100""",
+        (session['worker_id'],)).fetchall()
     con.close()
-    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span><a class="btn btn-light" href="{{url_for('complaint_search')}}">⌕ Search complaints</a><a class="btn btn-light" href="{{url_for('forgot_password')}}">🔐 Reset password</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}<form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form>{% endif %}</div>{% else %}<div class="empty">No current jobs assigned.</div>{% endfor %}</div><div class="section-title"><h3>Closed jobs</h3><span>{{closed_jobs|length}} completed</span></div><div class="admin-list">{% for j in closed_jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><span class="chip closed">Closed</span></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p></div>{% endif %}</div>{% else %}<div class="empty">No closed jobs yet.</div>{% endfor %}</div>''', jobs=jobs,closed_jobs=closed_jobs)
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">WORKER OPERATIONS</div><h1>Welcome, {{session.get('name','Worker').split()[0]}}.</h1><p>Your assigned campus tasks, prioritized in one place.</p></div><span class="chip emergency">● WORKER PORTAL</span><a class="btn btn-light" href="{{url_for('complaint_search')}}">⌕ Search complaints</a><a class="btn btn-light" href="{{url_for('forgot_password')}}">🔐 Reset password</a></div><div class="hero"><div class="hero-content"><div class="hero-kicker">CAMPUS CARE / FIELD TEAM</div><h2>Every task. Clear ownership.</h2><p>Review the issue, visit the reported location, and keep students updated as work progresses.</p></div></div><div class="emergency-actions"><a class="emergency-tile sos" href="tel:112"><span class="tile-icon">🆘</span><span><strong>SOS · Call 112</strong><small>Use in immediate danger or urgent medical/fire situations.</small></span><span class="tile-arrow">↗</span></a><a class="emergency-tile" href="{{url_for('emergency_help')}}"><span class="tile-icon">✚</span><span><strong>Emergency Help Centre</strong><small>View emergency guidance and support numbers.</small></span><span class="tile-arrow">›</span></a></div><div class="section-title"><h3>Your assigned jobs</h3><span>{{jobs|length}} tasks</span></div><div class="admin-list">{% for j in jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><div class="admin-tags"><span class="chip {{'emergency' if j['priority']=='Emergency' else 'assigned'}}">{{j['priority']}}</span><span class="chip progress">{{j['status']}}</span></div></div><p class="admin-desc">{{j['description']}}</p><form class="admin-form" method="POST" enctype="multipart/form-data" action="{{url_for('worker_upload_job_file', id=j['id'])}}"><div><label>Upload work photo / PDF (max 5 MB)</label><input type="file" name="job_file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" required></div><button class="btn btn-light" type="submit">📎 Upload file</button></form>{% for f in uploads if f['complaint_id']==j['complaint_id'] %}<div class="admin-meta">📎 <a href="{{url_for('worker_job_file',file_id=f['id'])}}" target="_blank" rel="noopener">{{f['file_name']}}</a> · {{f['created_at']}}</div>{% endfor %}{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback received</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p><small>Complaint closed · Editing disabled</small></div>{% else %}<form class="admin-form" method="POST" action="{{url_for('worker_update_job', id=j['id'])}}"><div><label>Update status</label><select name="status">{% for st in ['Assigned','In Progress','Resolved'] %}<option {{'selected' if j['status']==st else ''}}>{{st}}</option>{% endfor %}</select></div><div><label>Update note</label><input name="remark" placeholder="Work done / next step" value="{{j['admin_remark']}}"></div><button class="btn btn-primary" type="submit">Save update</button></form>{% endif %}</div>{% else %}<div class="empty">No current jobs assigned.</div>{% endfor %}</div><div class="section-title"><h3>Closed jobs</h3><span>{{closed_jobs|length}} completed</span></div><div class="admin-list">{% for j in closed_jobs %}<div class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{j['complaint_id']}} · {{j['category']}} · {{j['location']}}</div><div class="admin-title">{{j['title']}}</div><div class="admin-meta">Reported by {{j['student_name']}} · Room {{j['room'] or '—'}}</div></div><span class="chip closed">Closed</span></div><p class="admin-desc">{{j['description']}}</p>{% if j['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback</b><div>{{'★'*j['feedback_rating']}}{{'☆'*(5-j['feedback_rating'])}}</div><p>{{j['feedback_comment'] or 'No written comment.'}}</p></div>{% endif %}</div>{% else %}<div class="empty">No closed jobs yet.</div>{% endfor %}</div>''', jobs=jobs,closed_jobs=closed_jobs,uploads=uploads)
     return render_page(body, 'Worker Portal', 'WORKER OPERATIONS')
+
+@app.route('/worker/job/<int:id>/upload', methods=['POST'])
+def worker_upload_job_file(id):
+    if not require('worker') or not session.get('worker_id'):
+        return redirect(url_for('worker_login'))
+    con = get_db()
+    try:
+        job = con.execute("""SELECT id FROM complaints
+            WHERE id=? AND assigned_worker_id=?
+              AND status IN ('Submitted','Assigned','In Progress')
+              AND NOT EXISTS (SELECT 1 FROM feedback WHERE feedback.complaint_id=complaints.id)""",
+            (id, session['worker_id'])).fetchone()
+        if not job:
+            flash('This job is not active or is not assigned to your account.', 'error')
+            return redirect(url_for('worker_dashboard'))
+        uploaded = request.files.get('job_file')
+        if not uploaded or not uploaded.filename:
+            flash('Choose a photo or document to upload.', 'error')
+            return redirect(url_for('worker_dashboard'))
+        filename = secure_filename(uploaded.filename) or 'work-evidence'
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        allowed = {'png':'image/png','jpg':'image/jpeg','jpeg':'image/jpeg','webp':'image/webp','gif':'image/gif','pdf':'application/pdf'}
+        if ext not in allowed:
+            flash('Upload a PNG, JPG, WEBP, GIF or PDF file.', 'error')
+            return redirect(url_for('worker_dashboard'))
+        raw = uploaded.read(5 * 1024 * 1024 + 1)
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            flash('File must be non-empty and no larger than 5 MB.', 'error')
+            return redirect(url_for('worker_dashboard'))
+        con.execute("""INSERT INTO worker_job_uploads
+            (complaint_id,worker_id,file_name,file_data,file_mime)
+            VALUES(?,?,?,?,?)""",
+            (id, session['worker_id'], filename, base64.b64encode(raw).decode('ascii'), allowed[ext]))
+        con.commit()
+        flash('File uploaded to this complaint.', 'success')
+    except Exception:
+        con.rollback()
+        logging.exception('Worker complaint file upload failed')
+        flash('Could not upload the file. Please try again.', 'error')
+    finally:
+        con.close()
+    return redirect(url_for('worker_dashboard'))
+
+
+@app.route('/worker/job-file/<int:file_id>')
+def worker_job_file(file_id):
+    if not require('worker') or not session.get('worker_id'):
+        abort(401)
+    con = get_db()
+    row = con.execute("""SELECT f.file_name,f.file_data,f.file_mime
+        FROM worker_job_uploads f JOIN complaints c ON c.id=f.complaint_id
+        WHERE f.id=? AND f.worker_id=? AND c.assigned_worker_id=?""",
+        (file_id, session['worker_id'], session['worker_id'])).fetchone()
+    con.close()
+    if not row:
+        abort(404)
+    try:
+        raw = base64.b64decode(row['file_data'], validate=True)
+    except (ValueError, TypeError):
+        abort(404)
+    return Response(raw, mimetype=row['file_mime'],
+        headers={'Content-Disposition': "inline; filename*=UTF-8''" + quote_plus(row['file_name']),
+                 'X-Content-Type-Options':'nosniff',
+                 'Cache-Control':'private, no-store'})
+
 
 @app.route('/worker/job/<int:id>', methods=['POST'])
 def worker_update_job(id):
