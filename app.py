@@ -1043,6 +1043,31 @@ def submit_feedback(complaint_id):
 
 
 # 10. ROUTES — ADMIN DASHBOARD, COMPLAINTS, AND DATA EXPORT/IMPORT
+@app.route('/admin/history')
+def admin_history():
+    if not require('admin') or not session.get('user_id'):
+        return redirect(url_for('login'))
+    con = get_db()
+    history = con.execute('''SELECT c.*,u.name AS student_name,u.room,w.name AS worker_name,
+        f.rating AS feedback_rating,f.comment AS feedback_comment
+        FROM complaints c JOIN users u ON u.id=c.user_id
+        LEFT JOIN workers w ON w.id=c.assigned_worker_id
+        LEFT JOIN feedback f ON f.id=(SELECT MAX(f2.id) FROM feedback f2 WHERE f2.complaint_id=c.id)
+        WHERE c.status IN ('Resolved','Closed')
+           OR EXISTS (SELECT 1 FROM feedback f_done WHERE f_done.complaint_id=c.id)
+        ORDER BY c.created_at DESC LIMIT 500''').fetchall()
+    con.close()
+    body = render_template_string(r'''<div class="page-head"><div><div class="eyebrow">ADMINISTRATION · RECORDS</div><h1>Complaint History</h1><p>Resolved and closed complaints are stored here, separate from active complaints.</p></div><a class="btn btn-light" href="{{url_for('admin_dashboard')}}">← Back to dashboard</a></div>
+    <div class="section-title"><h3>Completed complaints</h3><span>{{history|length}} records</span></div>
+    <div class="admin-list">{% for c in history %}<article class="admin-card">
+      <div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div><div class="admin-title">{{c['title']}}</div><div class="admin-meta">Reported by {{c['student_name']}} · Room {{c['room'] or '—'}} · {{c['created_at']}} · Worker: {{c['worker_name'] or 'Not assigned'}}</div></div><span class="chip closed">{{c['status']}}</span></div>
+      <p class="admin-desc">{{c['description']}}</p>
+      {% if c['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback</b><div>{{'★'*c['feedback_rating']}}{{'☆'*(5-c['feedback_rating'])}} · {{c['feedback_rating']}}/5</div><p>{{c['feedback_comment'] or 'No written comment provided.'}}</p></div>{% endif %}
+      <small class="muted">History record · No editing available</small>
+    </article>{% else %}<div class="empty">No resolved or closed complaints yet.</div>{% endfor %}</div>''', history=history)
+    return render_page(body, 'Complaint History', 'ADMINISTRATION')
+
+
 @app.route('/admin')
 def admin_dashboard():
     if not require('admin') or not session.get('user_id'):
@@ -1098,19 +1123,6 @@ def admin_dashboard():
       <a class="btn btn-primary" href="{{url_for('admin_export_data')}}">⬇ Download Excel — Accounts & Complaints</a>
       <p class="muted" style="margin-bottom:0">Passwords and password hashes are never included. Existing records are not changed.</p>
     </div>
-    <div class="section-title"><h3>Student feedback received</h3><span>{{feedback_items|length}} recent responses</span></div>
-    <div class="admin-list" style="margin-bottom:28px">
-    {% for f in feedback_items %}
-      <article class="admin-card">
-        <div class="admin-top"><div><div class="admin-meta">{{f['complaint_id']}} · {{f['category']}} · {{f['created_at']}}</div>
-        <div class="admin-title">{{f['title']}}</div><div class="admin-meta">Student: {{f['student_name']}} · Room {{f['room'] or '—'}} · Worker: {{f['worker_name'] or 'Not assigned'}}</div></div>
-        <span class="chip resolved">Feedback received</span></div>
-        <div style="font-size:22px;color:#d49a24;margin-top:10px">{{'★'*f['rating']}}{{'☆'*(5-f['rating'])}} <span style="font-size:12px;color:#71809a">{{f['rating']}}/5</span></div>
-        <p class="admin-desc">{{f['comment'] or 'No written comment provided.'}}</p>
-        <small class="muted">This complaint is closed and cannot be edited.</small>
-      </article>
-    {% else %}<div class="empty">No student feedback has been received yet.</div>{% endfor %}
-    </div>
     <div class="section-title"><h3>Complaint management</h3><span>{{complaints|length}} recent reports</span></div>
     <div class="admin-list">
     {% for c in complaints %}
@@ -1130,10 +1142,11 @@ def admin_dashboard():
       </article>
     {% else %}<div class="empty">No complaints have been submitted yet.</div>{% endfor %}
     </div>
-    <div class="section-title"><h3>Closed complaints archive</h3><span>{{closed_complaints|length}} completed reports</span></div>
-    <div class="admin-list">{% for c in closed_complaints %}<article class="admin-card"><div class="admin-top"><div><div class="admin-meta">{{c['complaint_id']}} · {{c['category']}} · {{c['location']}}</div><div class="admin-title">{{c['title']}}</div><div class="admin-meta">Reported by {{c['student_name']}} · Room {{c['room'] or '—'}} · {{c['created_at']}}</div></div><span class="chip closed">Closed</span></div><p class="admin-desc">{{c['description']}}</p>{% if c['feedback_rating'] is not none %}<div class="feedback"><b>Student feedback</b><div>{{'★'*c['feedback_rating']}}{{'☆'*(5-c['feedback_rating'])}}</div><p>{{c['feedback_comment'] or 'No written comment.'}}</p></div>{% endif %}</article>{% else %}<div class="empty">No closed complaints yet.</div>{% endfor %}</div>
+    <div class="card" style="margin-top:24px">
+      <div class="section-title"><div><h3>Complaint History</h3><p class="muted" style="margin:5px 0 0">Resolved and closed complaints, including student feedback, are kept separately from active work.</p></div><a class="btn btn-primary" href="{{url_for('admin_history')}}">View history →</a></div>
+    </div>
     </div>''', total=total, submitted=submitted, active=active, resolved=resolved,
-       complaints=complaints, closed_complaints=closed_complaints, workers=workers, statuses=STATUSES, feedback_items=feedback_items)
+       complaints=complaints, workers=workers, statuses=STATUSES)
     return render_page(body, 'Admin Dashboard', 'ADMINISTRATION')
 
 
