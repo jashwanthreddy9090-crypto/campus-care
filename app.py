@@ -1062,8 +1062,7 @@ def admin_dashboard():
         LEFT JOIN feedback f ON f.id=(SELECT MAX(f2.id) FROM feedback f2 WHERE f2.complaint_id=c.id)
         WHERE c.status IN ('Submitted','Assigned','In Progress')
           AND NOT EXISTS (SELECT 1 FROM feedback f_done WHERE f_done.complaint_id=c.id)
-        ORDER BY CASE c.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END,
-                 c.created_at DESC
+        ORDER BY c.created_at DESC
         LIMIT 100
     ''').fetchall()
     closed_complaints = con.execute('''SELECT c.*,u.name AS student_name,u.room,
